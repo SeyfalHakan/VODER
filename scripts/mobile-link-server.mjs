@@ -197,6 +197,23 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/mobile/health") {
+    const env = getSupabaseEnv();
+    send(
+      response,
+      200,
+      "application/json; charset=utf-8",
+      JSON.stringify({
+        ok: true,
+        supabaseUrlConfigured: Boolean(env.url),
+        supabaseServiceKeyConfigured: Boolean(env.key),
+        supabaseReady: Boolean(env.url && env.key),
+        version: "b5993f0-env-check"
+      })
+    );
+    return;
+  }
+
   send(response, 404, "text/plain; charset=utf-8", "Не найдено");
 });
 
@@ -749,18 +766,19 @@ async function buildAssets() {
 }
 
 async function createSupabaseAdminClient() {
-  const url =
-    process.env.NEXT_PUBLIC_SUPABASE_URL ??
-    process.env.NEXT_PUBLIC_SUPABASE_URI ??
-    process.env.SUPABASE_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.SUPABASE_SERVICE_KEY;
+  const { url, key } = getSupabaseEnv();
   if (!url || !key) return null;
   const { createClient } = await import("@supabase/supabase-js");
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false }
   });
+}
+
+function getSupabaseEnv() {
+  return {
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URI ?? process.env.SUPABASE_URL,
+    key: process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_KEY
+  };
 }
 
 function readBody(request) {
