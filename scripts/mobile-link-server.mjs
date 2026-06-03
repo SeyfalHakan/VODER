@@ -923,8 +923,8 @@ function mobileHtml() {
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="VODER" />
   <link rel="manifest" href="/manifest.json" />
-  <link rel="icon" href="/icon.svg" />
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="icon" href="/icon.svg?v=2" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" />
   <title>VODER</title>
   <style>
     :root{--ink:#10202a;--muted:#5c6b74;--line:#d9e4e9;--aqua:#0f9f9c;--soft:#f4f8fa;--danger:#b91c1c}

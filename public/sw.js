@@ -1,4 +1,4 @@
-const CACHE_NAME = "voder-pwa-v1";
+const CACHE_NAME = "voder-pwa-v2";
 const APP_SHELL = [
   "/employee",
   "/manifest.json",
