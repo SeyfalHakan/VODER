@@ -96,18 +96,14 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === "POST" && url.pathname === "/api/mobile/shift/open") {
-    const bodyText = await readBody(request);
-    const body = bodyText ? JSON.parse(bodyText) : {};
-    const employeeName = employeeDisplayName(body.employeeName);
-    const shift = {
-      id: crypto.randomUUID(),
-      employee_name: employeeName,
-      opened_at: moscowDateTime(),
-      opened_date: moscowDate(),
-      closed_at: null
-    };
-    memoryShifts.push(shift);
-    send(response, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, shift }));
+    try {
+      const bodyText = await readBody(request);
+      const body = bodyText ? JSON.parse(bodyText) : {};
+      const result = await openShift(body);
+      send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
+    } catch (error) {
+      send(response, 500, "application/json; charset=utf-8", JSON.stringify({ error: error.message }));
+    }
     return;
   }
 
@@ -117,6 +113,7 @@ const server = createServer(async (request, response) => {
       const shiftId = String(body.shiftId ?? "");
       const fallbackShift = body.shift && typeof body.shift === "object" ? body.shift : null;
       const shift =
+        (shiftId ? await findShift(shiftId) : null) ??
         memoryShifts.find((item) => item.id === shiftId) ??
         (fallbackShift
           ? {
@@ -133,6 +130,7 @@ const server = createServer(async (request, response) => {
       }
       shift.closed_at = moscowDateTime();
       if (!memoryShifts.some((item) => item.id === shift.id)) memoryShifts.push(shift);
+      await closeShiftInStorage(shift);
       const result = await buildReport(shift.opened_date, moscowDate(), body.role, shift.employee_name, shift.id);
       send(response, 200, "application/json; charset=utf-8", JSON.stringify({ ok: true, shift, summary: result.body }));
     } catch (error) {
@@ -218,6 +216,74 @@ function getLanUrls(currentPort) {
     .flat()
     .filter((item) => item && item.family === "IPv4" && !item.internal)
     .map((item) => `http://${item.address}:${currentPort}/employee`);
+}
+
+async function openShift(body) {
+  const employeeName = employeeDisplayName(body.employeeName);
+  const shift = {
+    id: crypto.randomUUID(),
+    employee_name: employeeName,
+    opened_at: moscowDateTime(),
+    opened_date: moscowDate(),
+    closed_at: null
+  };
+
+  const supabase = await createSupabaseAdminClient();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("employee_shifts")
+      .insert({
+        id: shift.id,
+        employee_name: shift.employee_name,
+        opened_at: shift.opened_at,
+        opened_date: shift.opened_date,
+        closed_at: shift.closed_at,
+        source: "mobile"
+      })
+      .select("id, employee_name, opened_at, opened_date, closed_at")
+      .single();
+
+    if (!error && data) {
+      return { status: 200, body: { ok: true, shift: normalizeShift(data), demo: false } };
+    }
+
+    console.warn("[mobile-shift-fallback]", error?.message ?? "Supabase shift insert failed");
+  }
+
+  memoryShifts.push(shift);
+  return { status: 200, body: { ok: true, shift, demo: true } };
+}
+
+async function findShift(shiftId) {
+  const supabase = await createSupabaseAdminClient();
+  if (!supabase || !shiftId) return null;
+
+  const { data, error } = await supabase
+    .from("employee_shifts")
+    .select("id, employee_name, opened_at, opened_date, closed_at")
+    .eq("id", shiftId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[mobile-shift-find-fallback]", error.message);
+    return null;
+  }
+
+  return data ? normalizeShift(data) : null;
+}
+
+async function closeShiftInStorage(shift) {
+  const supabase = await createSupabaseAdminClient();
+  if (!supabase || !shift?.id) return;
+
+  const { error } = await supabase
+    .from("employee_shifts")
+    .update({ closed_at: shift.closed_at, updated_at: new Date().toISOString() })
+    .eq("id", shift.id);
+
+  if (error) {
+    console.warn("[mobile-shift-close-fallback]", error.message);
+  }
 }
 
 async function saveSale(body) {
@@ -777,6 +843,16 @@ function coolerStatusFromRow(row) {
 function employeeDisplayName(value) {
   const text = String(value ?? "").trim();
   return text || "Сотрудник 1";
+}
+
+function normalizeShift(row) {
+  return {
+    id: String(row.id ?? ""),
+    employee_name: employeeDisplayName(row.employee_name),
+    opened_at: String(row.opened_at ?? ""),
+    opened_date: normalizeDate(row.opened_date) ?? moscowDate(),
+    closed_at: row.closed_at ? String(row.closed_at) : null
+  };
 }
 
 function rowHasShift(row, shiftId) {

@@ -133,6 +133,17 @@ create table public.expenses (
   created_at timestamptz not null default now()
 );
 
+create table public.employee_shifts (
+  id uuid primary key default gen_random_uuid(),
+  employee_name text not null,
+  opened_date date not null,
+  opened_at text not null,
+  closed_at text,
+  source text not null default 'mobile',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table public.pavilion_delivery_reports (
   id uuid primary key default gen_random_uuid(),
   report_date date not null,
@@ -196,6 +207,7 @@ alter table public.shipments enable row level security;
 alter table public.remaining_stock_reports enable row level security;
 alter table public.defective_write_offs enable row level security;
 alter table public.expenses enable row level security;
+alter table public.employee_shifts enable row level security;
 alter table public.pavilion_delivery_reports enable row level security;
 alter table public.coolers enable row level security;
 alter table public.daily_summaries enable row level security;
