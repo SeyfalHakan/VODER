@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+  font-family: Tahoma, Arial, Helvetica, sans-serif !important;
+  letter-spacing: 0 !important;
+}
+
+body {
+  margin: 0;
+  background: #ffffff;
+  color: #10202a;
+  font-family: Tahoma, Arial, Helvetica, sans-serif !important;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: Tahoma, Arial, Helvetica, sans-serif !important;
+}
+
+.table-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #b7c9d1 transparent;
+}
+
+@media (display-mode: standalone) {
+  body {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  input,
+  textarea {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+}

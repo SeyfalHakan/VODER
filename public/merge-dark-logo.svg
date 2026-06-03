@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1448 1086" role="img" aria-label="MERGE logo on dark background">
+  <title>MERGE logo on dark background</title>
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="72%">
+      <stop offset="0" stop-color="#252525"/>
+      <stop offset=".55" stop-color="#1b1c1c"/>
+      <stop offset="1" stop-color="#101111"/>
+    </radialGradient>
+    <filter id="softShadow" x="290" y="435" width="860" height="210" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="14" stdDeviation="13" flood-color="#000" flood-opacity=".62"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#fff" flood-opacity=".22"/>
+    </filter>
+  </defs>
+  <rect width="1448" height="1086" fill="url(#bg)"/>
+  <g fill="none" stroke="#f6f6f4" stroke-width="20" stroke-linecap="butt" stroke-linejoin="miter" filter="url(#softShadow)">
+    <path d="M333 612V473L402 573L468 473V612"/>
+    <path d="M523 473V612M523 482H632M523 542H632M523 603H632"/>
+    <path d="M686 612V482H748C784 482 802 501 802 529C802 559 779 572 748 572H686M746 572L797 612"/>
+    <path d="M963 499C937 475 892 475 864 502C836 529 836 585 864 608C891 632 937 626 965 584L965 543H903"/>
+    <path d="M1019 473V612M1019 482H1128M1019 542H1128M1019 603H1128"/>
+  </g>
+</svg>

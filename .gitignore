@@ -1,0 +1,14 @@
+.next
+node_modules
+.env
+.env.local
+.npm-cache
+dist
+coverage
+tsconfig.tsbuildinfo
+*.log
+.DS_Store
+logs
+figma-screens
+figma-screens.zip
+voder-start-screen.png

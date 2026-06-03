@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: voder-mobile
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm run mobile
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MOBILE_APP_HOST
+        value: 0.0.0.0
