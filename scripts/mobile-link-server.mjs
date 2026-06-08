@@ -12,6 +12,7 @@ const memorySales = [];
 const memoryExpenses = [];
 const memoryShifts = [];
 const memoryWarehouse = [];
+const memoryWarehousePayments = [];
 const fixedAuditMonthlyExpenses = [
   { name: "Аренда", amount: 105000 },
   { name: "Внутренний сервис", amount: 45000 }
@@ -95,6 +96,29 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "PATCH" && url.pathname.startsWith("/api/mobile/sales/")) {
+    try {
+      const id = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+      const body = JSON.parse(await readBody(request));
+      const result = await updateSale(id, body);
+      send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
+    } catch (error) {
+      send(response, 500, "application/json; charset=utf-8", JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
+  if (request.method === "DELETE" && url.pathname.startsWith("/api/mobile/sales/")) {
+    try {
+      const id = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+      const result = await deleteSale(id);
+      send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
+    } catch (error) {
+      send(response, 500, "application/json; charset=utf-8", JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/mobile/shift/open") {
     try {
       const bodyText = await readBody(request);
@@ -161,6 +185,27 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/mobile/warehouse/payment") {
+    try {
+      const body = JSON.parse(await readBody(request));
+      const result = await saveWarehousePayment(body);
+      send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
+    } catch (error) {
+      send(response, 500, "application/json; charset=utf-8", JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/mobile/warehouse/debt") {
+    try {
+      const result = await buildWarehouseDebt(url.searchParams.get("from"), url.searchParams.get("to"));
+      send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
+    } catch (error) {
+      send(response, 500, "application/json; charset=utf-8", JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/mobile/report") {
     try {
       const result = await buildReport(
@@ -168,7 +213,8 @@ const server = createServer(async (request, response) => {
         url.searchParams.get("to"),
         url.searchParams.get("role"),
         url.searchParams.get("employeeName"),
-        url.searchParams.get("shiftId")
+        url.searchParams.get("shiftId"),
+        url.searchParams.get("filter")
       );
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
     } catch (error) {
@@ -335,6 +381,7 @@ async function saveSale(body) {
   }
 
   const payload = {
+    id: crypto.randomUUID(),
     report_date: moscowDate(),
     employee_name: employeeName,
     sale_channel: saleChannel,
@@ -359,9 +406,53 @@ async function saveSale(body) {
   }
 
   const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
-  const { error } = await supabase.from("shipments").insert(cleanPayload);
+  const { data, error } = await supabase.from("shipments").insert(cleanPayload).select("*").single();
   if (error) return { status: 500, body: { error: error.message } };
-  return { status: 200, body: { ok: true, demo: false, payload } };
+  return { status: 200, body: { ok: true, demo: false, payload: data ?? payload } };
+}
+
+async function updateSale(id, body) {
+  if (!id) return { status: 400, body: { error: "Не найдена продажа" } };
+  const quantitySold = Number(body.quantitySold ?? body.quantity_sold ?? 0);
+  const quantityReturned = Number(body.quantityReturned ?? body.quantity_returned ?? 0);
+  const unitPrice = Number(body.unitPrice ?? body.unit_price ?? 0);
+  if (!Number.isFinite(quantitySold) || quantitySold < 0) return { status: 400, body: { error: "Введите количество проданных" } };
+  if (!Number.isFinite(quantityReturned) || quantityReturned < 0) return { status: 400, body: { error: "Введите количество возврата" } };
+  if (![200, 250, 300].includes(unitPrice)) return { status: 400, body: { error: "Цена должна быть 200, 250 или 300" } };
+
+  const patch = {
+    quantity_delivered: quantitySold,
+    quantity_sold: quantitySold,
+    quantity_returned: quantityReturned,
+    unit_price: unitPrice,
+    cash_amount: quantitySold * unitPrice
+  };
+
+  const supabase = await createSupabaseAdminClient();
+  if (!supabase) {
+    const row = memorySales.find((item) => String(item.id) === String(id));
+    if (!row) return { status: 404, body: { error: "Запись не найдена" } };
+    Object.assign(row, patch);
+    return { status: 200, body: { ok: true, demo: true, payload: row } };
+  }
+
+  const { data, error } = await supabase.from("shipments").update(patch).eq("id", id).select("*").single();
+  if (error) return { status: 500, body: { error: error.message } };
+  return { status: 200, body: { ok: true, demo: false, payload: data } };
+}
+
+async function deleteSale(id) {
+  if (!id) return { status: 400, body: { error: "Не найдена продажа" } };
+  const supabase = await createSupabaseAdminClient();
+  if (!supabase) {
+    const index = memorySales.findIndex((item) => String(item.id) === String(id));
+    if (index === -1) return { status: 404, body: { error: "Запись не найдена" } };
+    memorySales.splice(index, 1);
+    return { status: 200, body: { ok: true, demo: true } };
+  }
+  const { error } = await supabase.from("shipments").delete().eq("id", id);
+  if (error) return { status: 500, body: { error: error.message } };
+  return { status: 200, body: { ok: true, demo: false } };
 }
 
 function loginByPassword(passwordInput) {
@@ -452,6 +543,7 @@ async function saveWarehouseEntry(body) {
   }
 
   const payload = {
+    id: crypto.randomUUID(),
     report_date: moscowDate(),
     entry_type: entryType,
     warehouse_name: "Склад",
@@ -476,14 +568,80 @@ async function saveWarehouseEntry(body) {
   };
   const dbPayload =
     entryType === "arrival"
-      ? { report_date: payload.report_date, warehouse_name: payload.warehouse_name, product_name: payload.product_name, quantity_received: quantity, purchase_unit_price: 0, purchase_amount: 0, payment_type: "transfer", source: "mobile" }
+      ? { id: payload.id, report_date: payload.report_date, warehouse_name: payload.warehouse_name, product_name: payload.product_name, quantity_received: quantity, purchase_unit_price: 120, purchase_amount: quantity * 120, payment_type: "transfer", source: "mobile" }
       : entryType === "remaining" || entryType === "return"
-        ? { report_date: payload.report_date, warehouse_name: payload.warehouse_name, product_name: payload.product_name, remaining_quantity: quantity, source: "mobile" }
-        : { report_date: payload.report_date, warehouse_name: payload.warehouse_name, product_name: payload.product_name, defective_quantity: quantity, reason: comment || "Списание со склада", comment, source: "mobile" };
+        ? { id: payload.id, report_date: payload.report_date, warehouse_name: payload.warehouse_name, product_name: payload.product_name, remaining_quantity: quantity, source: "mobile" }
+        : { id: payload.id, report_date: payload.report_date, warehouse_name: payload.warehouse_name, product_name: payload.product_name, defective_quantity: quantity, reason: comment || "Списание со склада", comment, source: "mobile" };
 
   const { error } = await supabase.from(tableByType[entryType]).insert(dbPayload);
   if (error) return { status: 500, body: { error: error.message } };
-  return { status: 200, body: { ok: true, demo: false, payload } };
+  return { status: 200, body: { ok: true, demo: false, payload: { ...payload, purchase_amount: entryType === "arrival" ? quantity * 120 : 0 } } };
+}
+
+async function saveWarehousePayment(body) {
+  const cashAmount = Number(body.cashAmount ?? body.cash_amount ?? 0);
+  const transferAmount = Number(body.transferAmount ?? body.transfer_amount ?? 0);
+  if (!Number.isFinite(cashAmount) || cashAmount < 0 || !Number.isFinite(transferAmount) || transferAmount < 0) {
+    return { status: 400, body: { error: "Введите корректную оплату" } };
+  }
+  if (cashAmount + transferAmount <= 0) return { status: 400, body: { error: "Введите сумму оплаты" } };
+  const payload = {
+    id: crypto.randomUUID(),
+    report_date: moscowDate(),
+    warehouse_name: "Склад",
+    cash_amount: cashAmount,
+    transfer_amount: transferAmount,
+    comment: "Оплата долга за бутылки",
+    source: "mobile"
+  };
+  const supabase = await createSupabaseAdminClient();
+  if (!supabase) {
+    memoryWarehousePayments.push(payload);
+    return { status: 200, body: { ok: true, demo: true, payload } };
+  }
+  const { data, error } = await supabase.from("warehouse_payments").insert(payload).select("*").single();
+  if (error) return { status: 500, body: { error: error.message } };
+  return { status: 200, body: { ok: true, demo: false, payload: data ?? payload } };
+}
+
+async function buildWarehouseDebt(fromInput, toInput) {
+  const from = normalizeDate(fromInput) ?? "2000-01-01";
+  const to = normalizeDate(toInput) ?? moscowDate();
+  const supabase = await createSupabaseAdminClient();
+  let arrivals = memoryWarehouse.filter((row) => row.entry_type === "arrival" && inPeriod(row.report_date, from, to));
+  let payments = memoryWarehousePayments.filter((row) => inPeriod(row.report_date, from, to));
+  if (supabase) {
+    const [arrivalsResult, paymentsResult] = await Promise.all([
+      supabase.from("stock_arrivals").select("*").gte("report_date", from).lte("report_date", to),
+      supabase.from("warehouse_payments").select("*").gte("report_date", from).lte("report_date", to)
+    ]);
+    if (arrivalsResult.error) return { status: 500, body: { error: arrivalsResult.error.message } };
+    if (paymentsResult.error) return { status: 500, body: { error: paymentsResult.error.message } };
+    arrivals = arrivalsResult.data ?? [];
+    payments = paymentsResult.data ?? [];
+  }
+  const bottles = sum(arrivals, "quantity_received") || sum(arrivals, "quantity");
+  const cashDebt = bottles * 115;
+  const transferDebt = bottles * 5;
+  const cashPaid = sum(payments, "cash_amount");
+  const transferPaid = sum(payments, "transfer_amount");
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      period: { from, to },
+      bottles,
+      cashDebt,
+      transferDebt,
+      totalDebt: cashDebt + transferDebt,
+      cashPaid,
+      transferPaid,
+      paidTotal: cashPaid + transferPaid,
+      cashRemaining: Math.max(0, cashDebt - cashPaid),
+      transferRemaining: Math.max(0, transferDebt - transferPaid),
+      remainingTotal: Math.max(0, cashDebt + transferDebt - cashPaid - transferPaid)
+    }
+  };
 }
 
 function employeeGroupLabel(name) {
@@ -593,26 +751,115 @@ function buildEmployeeBreakdown(sales, expenses) {
   })).filter((group) => group.summary.salesCount || group.summary.expenseItems.length);
 }
 
-async function buildReport(fromInput, toInput, role = "employee", employeeNameInput = "", shiftIdInput = "") {
+function clientName(row) {
+  return String(row.destination_name ?? row.warehouse_name ?? row.pavilion_code ?? "").trim() || "Без названия";
+}
+
+function publicSaleRow(row) {
+  return {
+    id: row.id,
+    date: row.report_date,
+    employeeName: row.employee_name ?? "",
+    channel: row.sale_channel ?? "pavilion",
+    destination: clientName(row),
+    paymentType: paymentKind(row),
+    coolerStatus: coolerStatusFromRow(row),
+    quantitySold: Number(row.quantity_sold ?? 0),
+    quantityReturned: Number(row.quantity_returned ?? 0),
+    unitPrice: Number(row.unit_price ?? 0),
+    amount: Number(row.cash_amount ?? 0)
+  };
+}
+
+function buildClientRows(sales, writeoffs) {
+  const groups = {};
+  for (const row of sales) {
+    const name = clientName(row);
+    const key = `${String(row.sale_channel ?? "pavilion")}__${name}__${paymentKind(row)}__${coolerStatusFromRow(row)}`;
+    groups[key] ??= {
+      name,
+      channel: String(row.sale_channel ?? "pavilion"),
+      paymentType: paymentKind(row),
+      coolerStatus: coolerStatusFromRow(row),
+      sold: 0,
+      returned: 0,
+      writeoffs: 0,
+      amount: 0
+    };
+    groups[key].sold += Number(row.quantity_sold ?? 0);
+    groups[key].returned += Number(row.quantity_returned ?? 0);
+    groups[key].amount += Number(row.cash_amount ?? 0);
+  }
+  for (const row of writeoffs) {
+    const name = String(row.warehouse_name ?? "Склад").trim() || "Склад";
+    const key = `warehouse__${name}__writeoff__none`;
+    groups[key] ??= {
+      name,
+      channel: "warehouse",
+      paymentType: "",
+      coolerStatus: "",
+      sold: 0,
+      returned: 0,
+      writeoffs: 0,
+      amount: 0
+    };
+    groups[key].writeoffs += Number(row.defective_quantity ?? row.quantity ?? 0);
+  }
+  return Object.values(groups);
+}
+
+function summarizeWarehouseDebt(arrivals, payments) {
+  const bottles = sum(arrivals, "quantity_received") || sum(arrivals, "quantity");
+  const cashDebt = bottles * 115;
+  const transferDebt = bottles * 5;
+  const cashPaid = sum(payments, "cash_amount");
+  const transferPaid = sum(payments, "transfer_amount");
+  return {
+    bottles,
+    cashDebt,
+    transferDebt,
+    totalDebt: cashDebt + transferDebt,
+    cashPaid,
+    transferPaid,
+    paidTotal: cashPaid + transferPaid,
+    cashRemaining: Math.max(0, cashDebt - cashPaid),
+    transferRemaining: Math.max(0, transferDebt - transferPaid),
+    remainingTotal: Math.max(0, cashDebt + transferDebt - cashPaid - transferPaid)
+  };
+}
+
+async function buildReport(fromInput, toInput, role = "employee", employeeNameInput = "", shiftIdInput = "", filterInput = "") {
   const from = normalizeDate(fromInput) ?? moscowDate();
   const to = normalizeDate(toInput) ?? from;
   const employeeName = employeeDisplayName(employeeNameInput);
   const shiftId = String(shiftIdInput ?? "").trim();
+  const filter = String(filterInput ?? "").trim().toLowerCase();
   if (from > to) return { status: 400, body: { error: "Дата начала не может быть позже даты конца" } };
 
   const supabase = await createSupabaseAdminClient();
   let sales = memorySales.filter((row) => inPeriod(row.report_date, from, to));
   let expenses = memoryExpenses.filter((row) => inPeriod(row.expense_date, from, to));
+  let arrivals = memoryWarehouse.filter((row) => row.entry_type === "arrival" && inPeriod(row.report_date, from, to));
+  let writeoffs = memoryWarehouse.filter((row) => row.entry_type === "writeoff" && inPeriod(row.report_date, from, to));
+  let warehousePayments = memoryWarehousePayments.filter((row) => inPeriod(row.report_date, from, to));
 
   if (supabase) {
-    const [salesResult, expensesResult] = await Promise.all([
+    const [salesResult, expensesResult, arrivalsResult, writeoffsResult, paymentsResult] = await Promise.all([
       supabase.from("shipments").select("*").gte("report_date", from).lte("report_date", to),
-      supabase.from("expenses").select("*").gte("expense_date", from).lte("expense_date", to)
+      supabase.from("expenses").select("*").gte("expense_date", from).lte("expense_date", to),
+      supabase.from("stock_arrivals").select("*").gte("report_date", from).lte("report_date", to),
+      supabase.from("defective_write_offs").select("*").gte("report_date", from).lte("report_date", to),
+      supabase.from("warehouse_payments").select("*").gte("report_date", from).lte("report_date", to)
     ]);
     if (salesResult.error) return { status: 500, body: { error: salesResult.error.message } };
     if (expensesResult.error) return { status: 500, body: { error: expensesResult.error.message } };
+    if (arrivalsResult.error) return { status: 500, body: { error: arrivalsResult.error.message } };
+    if (writeoffsResult.error) return { status: 500, body: { error: writeoffsResult.error.message } };
     sales = salesResult.data ?? [];
     expenses = expensesResult.data ?? [];
+    arrivals = arrivalsResult.data ?? [];
+    writeoffs = writeoffsResult.data ?? [];
+    warehousePayments = paymentsResult.error ? [] : (paymentsResult.data ?? []);
   }
 
   if (role === "employee") {
@@ -624,8 +871,16 @@ async function buildReport(fromInput, toInput, role = "employee", employeeNameIn
     }
   }
 
+  if (filter) {
+    sales = sales.filter((row) => clientName(row).toLowerCase().includes(filter));
+    arrivals = arrivals.filter((row) => String(row.warehouse_name ?? "").toLowerCase().includes(filter));
+    writeoffs = writeoffs.filter((row) => String(row.warehouse_name ?? "").toLowerCase().includes(filter));
+  }
+
   const summary = summarizeOperations(sales, expenses);
   const employeeBreakdown = role === "admin" ? buildEmployeeBreakdown(sales, expenses) : [];
+  const warehouseDebt = summarizeWarehouseDebt(arrivals, warehousePayments);
+  const clientRows = buildClientRows(sales, writeoffs);
 
   return {
     status: 200,
@@ -634,7 +889,27 @@ async function buildReport(fromInput, toInput, role = "employee", employeeNameIn
       period: { from, to },
       ...summary,
       role,
-      employeeBreakdown
+      employeeBreakdown,
+      filter: filterInput,
+      clientRows,
+      salesRows: sales.map(publicSaleRow),
+      warehouseDebt,
+      warehouseArrivals: arrivals.map((row) => ({
+        id: row.id,
+        date: row.report_date,
+        warehouseName: row.warehouse_name ?? "Склад",
+        bottles: Number(row.quantity_received ?? row.quantity ?? 0),
+        cashDebt: Number(row.quantity_received ?? row.quantity ?? 0) * 115,
+        transferDebt: Number(row.quantity_received ?? row.quantity ?? 0) * 5,
+        totalDebt: Number(row.quantity_received ?? row.quantity ?? 0) * 120
+      })),
+      warehouseWriteoffs: writeoffs.map((row) => ({
+        id: row.id,
+        date: row.report_date,
+        warehouseName: row.warehouse_name ?? "Склад",
+        quantity: Number(row.defective_quantity ?? row.quantity ?? 0),
+        comment: row.comment ?? row.reason ?? ""
+      }))
     }
   };
 }
@@ -976,9 +1251,12 @@ function mobileHtml() {
     @media (min-height:850px){#form{min-height:calc(100dvh - var(--device-top) - var(--content-bottom) - 104px)}}
     .logged-out main{padding:0!important}.logged-out #homePage>.panel{padding-bottom:calc(var(--device-bottom) + 34px)!important}
     .footer{height:0!important;min-height:0!important;background:none!important;background-color:transparent!important;box-shadow:none!important;border:0!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;overflow:visible!important}.footer:before,.footer:after{display:none!important}.footer-inner{background:linear-gradient(135deg,rgba(43,108,255,.38),rgba(146,196,255,.18) 58%,rgba(42,23,96,.34))!important;border:1px solid rgba(169,207,255,.28)!important;box-shadow:0 18px 46px rgba(18,50,145,.36),0 0 34px rgba(87,149,255,.20),inset 0 1px 0 rgba(255,255,255,.22),inset 0 -1px 0 rgba(25,55,160,.22)!important;backdrop-filter:blur(24px) saturate(145%)!important;-webkit-backdrop-filter:blur(24px) saturate(145%)!important}.footer button{color:rgba(226,238,255,.72)!important}.footer button.active{background:linear-gradient(135deg,#2d7cff 0%,#6ba9ff 58%,#b8d7ff 130%)!important;color:white!important;box-shadow:0 12px 30px rgba(70,142,255,.48),inset 0 1px 0 rgba(255,255,255,.34)!important}
+    .boot-loader{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:radial-gradient(circle at 50% 78%,rgba(74,0,216,.62),transparent 36%),linear-gradient(180deg,#05010d,#180044 120%);transition:opacity .28s ease,visibility .28s ease}.boot-loader.hidden{opacity:0;visibility:hidden;pointer-events:none}.boot-loader-card{display:grid;place-items:center;gap:16px;color:white}.boot-loader img{width:92px;height:92px;border-radius:26px;box-shadow:0 24px 70px rgba(50,0,150,.46)}.loader-ring{width:42px;height:42px;border-radius:50%;border:3px solid rgba(255,255,255,.18);border-top-color:#a1bdff;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+    .report-tools{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end}.report-tools label{min-width:0}.mini-btn{height:44px;border:1px solid rgba(216,225,255,.18);border-radius:999px;background:rgba(255,255,255,.08);color:#fff;font-size:12px;font-weight:900;padding:0 14px}.report-table{display:grid;gap:7px}.report-row{display:grid;grid-template-columns:1.3fr .8fr .7fr .7fr .7fr .9fr;gap:6px;align-items:center;padding:8px;border:1px solid rgba(216,225,255,.12);border-radius:14px;background:rgba(255,255,255,.055);font-size:11px}.report-row.head{color:#a1bdff;font-weight:900;background:rgba(161,189,255,.08)}.report-row b{font-size:12px}.report-row input{height:34px!important;font-size:13px!important;border-radius:12px!important;padding:0 8px}.report-row .danger-small{height:34px;border:0;border-radius:12px;background:rgba(255,80,106,.18);color:#ffb3bf;font-weight:900}.profit-cards{display:grid;grid-template-columns:1fr 1fr;gap:8px}.profit-card{padding:10px;border-radius:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10)}.profit-card span{display:block;color:var(--muted);font-size:11px;font-weight:800}.profit-card b{display:block;margin-top:4px;font-size:16px}.warehouse-debt{display:grid;gap:9px;padding:10px;border-radius:20px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10)}.paid-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   </style>
 </head>
 <body>
+<div id="bootLoader" class="boot-loader"><div class="boot-loader-card"><img src="/icon.svg?v=2" alt="VODER" /><div class="loader-ring"></div></div></div>
 <main><div class="app">
   <header><div class="brand"><div class="logo"><img src="/icon.svg" alt="VODER" /></div><div><h1 class="app-title">VODER <span id="channelBadge" class="channel-badge hidden">Павильон</span></h1><p class="sub">Продажа бутылок 19 л</p></div></div><div class="pill" id="shiftStatus">Москва</div></header>
   <section id="homePage" class="page active">
@@ -1061,6 +1339,7 @@ function mobileHtml() {
     <div class="card panel">
       <label id="reportFromWrap"><span>Дата с</span><input id="reportFrom" type="date" /></label>
       <label id="reportToWrap"><span>Дата по</span><input id="reportTo" type="date" /></label>
+      <div class="report-tools"><label id="reportFilterWrap"><span>Фильтр павильон/склад</span><input id="reportFilter" type="text" inputmode="text" placeholder="Например: 12 или Основной" /></label><button id="reportEditButton" class="mini-btn hidden" type="button">ПРАВИТЬ</button></div>
       <p id="employeeShiftInfo" class="shift-pill hidden"></p>
       <button id="reportButton" class="submit" type="button">РАССЧИТАТЬ</button>
       <div id="reportBox" class="report-box" hidden></div>
@@ -1091,6 +1370,16 @@ function mobileHtml() {
         <p id="warehouseMessage" hidden></p>
         <button id="warehouseSubmit" class="submit" type="submit">Сохранить склад</button>
       </form>
+      <div id="warehouseDebtBox" class="warehouse-debt" hidden></div>
+      <form id="warehousePaymentForm" class="warehouse-debt" hidden>
+        <div class="report-section">Оплатил</div>
+        <div class="paid-grid">
+          <label><span>Нал</span><input id="warehousePaidCash" inputmode="numeric" pattern="[0-9]*" placeholder="0" /></label>
+          <label><span>Безнал</span><input id="warehousePaidTransfer" inputmode="numeric" pattern="[0-9]*" placeholder="0" /></label>
+        </div>
+        <button id="warehousePaymentSubmit" class="submit" type="submit">Сохранить оплату</button>
+        <p id="warehousePaymentMessage" hidden></p>
+      </form>
     </div>
   </section>
 
@@ -1118,6 +1407,8 @@ let appEmployee = localStorage.getItem("waterOpsEmployee") || "";
 let employeeKind = localStorage.getItem("waterOpsEmployeeKind") || "pavilion";
 let currentShift = JSON.parse(localStorage.getItem("waterOpsShift") || "null");
 let lastClosedReport = localStorage.getItem("waterOpsLastClosedReport") || "";
+let lastReportData = null;
+let reportEditMode = false;
 const $ = (id) => document.getElementById(id);
 function applyRoleState(){
   const loggedIn = appRole === "employee" || appRole === "admin";
@@ -1135,6 +1426,8 @@ function applyRoleState(){
   $("openShiftMessage").classList.toggle("hidden", appRole === "admin");
   $("reportFromWrap").classList.toggle("hidden", appRole === "employee");
   $("reportToWrap").classList.toggle("hidden", appRole === "employee");
+  $("reportFilterWrap").classList.toggle("hidden", appRole !== "admin");
+  $("reportEditButton").classList.toggle("hidden", appRole !== "employee" || !lastReportData || !lastReportData.salesRows || !lastReportData.salesRows.length);
   $("employeeShiftInfo").classList.toggle("hidden", appRole !== "employee");
   $("reportButton").textContent = appRole === "employee" ? "РАССЧИТАТЬ" : "Расчет за период";
   document.querySelectorAll(".auth-only").forEach((node)=>node.classList.toggle("hidden", !loggedIn));
@@ -1142,6 +1435,7 @@ function applyRoleState(){
   $("navExpenses").classList.toggle("hidden", !loggedIn || appRole === "admin");
   $("reportCloseShiftButton").classList.toggle("hidden", appRole !== "employee" || !currentShift || currentShift.closed_at);
   document.querySelectorAll(".admin-only").forEach((node)=>node.classList.toggle("hidden", appRole !== "admin"));
+  $("navAudit").classList.add("hidden");
   if (appRole === "admin" && (document.getElementById("workPage").classList.contains("active") || document.getElementById("expensesPage").classList.contains("active"))) {
     showPage("report");
   }
@@ -1198,6 +1492,7 @@ function showPage(page){
   $("navAudit").classList.toggle("active", page==="audit");
   if (page === "work" && appRole === "employee") loadWorkKpi();
   if (page === "home" && appRole === "admin") loadAssets();
+  if (page === "warehouse" && appRole === "admin") loadWarehouseDebt();
   if (page === "report" && appRole === "employee" && (!currentShift || currentShift.closed_at) && lastClosedReport) {
     $("reportBox").hidden = false;
     $("reportBox").innerHTML = lastClosedReport;
@@ -1414,6 +1709,16 @@ $("expenseComment").oninput=renderExpense;
 $("warehouseArrival").onclick=()=>toggleWarehouseEntry("arrival");
 $("warehouseReturn").onclick=()=>toggleWarehouseEntry("return");
 $("warehouseWriteoff").onclick=()=>toggleWarehouseEntry("writeoff");
+$("reportEditButton").onclick=async()=>{
+  if(!lastReportData) return;
+  if(!reportEditMode){
+    reportEditMode = true;
+    $("reportEditButton").textContent = "SAVE";
+    $("reportBox").innerHTML = renderEmployeeReport(lastReportData, currentReportPrefix(), true);
+    return;
+  }
+  await saveReportEdits();
+};
 $("form").onsubmit=async(e)=>{
   e.preventDefault();
   if(appRole==="employee" && (!currentShift || currentShift.closed_at)){
@@ -1516,7 +1821,21 @@ $("warehouseForm").onsubmit=async(e)=>{
     renderWarehouse();
   }
   if(!failed && appRole==="admin") loadAssets();
+  if(!failed && appRole==="admin") loadWarehouseDebt();
   $("warehouseSubmit").disabled=false;$("warehouseSubmit").textContent="Сохранить склад";
+};
+$("warehousePaymentForm").onsubmit=async(e)=>{
+  e.preventDefault();
+  $("warehousePaymentSubmit").disabled=true;$("warehousePaymentSubmit").textContent="Сохраняем...";
+  const res=await fetch("/api/mobile/warehouse/payment",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({
+    cashAmount:Number($("warehousePaidCash").value||0),
+    transferAmount:Number($("warehousePaidTransfer").value||0)
+  })});
+  const data=await res.json();
+  const message=$("warehousePaymentMessage");message.hidden=false;message.className=res.ok?"message ok":"message err";
+  message.textContent=res.ok?"Оплата сохранена":(data.error||"Не удалось сохранить оплату");
+  if(res.ok){$("warehousePaidCash").value="";$("warehousePaidTransfer").value="";await loadWarehouseDebt();}
+  $("warehousePaymentSubmit").disabled=false;$("warehousePaymentSubmit").textContent="Сохранить оплату";
 };
 async function calculateReport(){
   if(appRole === "employee" && (!currentShift || currentShift.closed_at)){
@@ -1532,9 +1851,12 @@ async function calculateReport(){
   }
   $("reportButton").disabled=true;$("reportButton").textContent="Считаем...";
   $("reportMessage").hidden=true;
+  reportEditMode=false;
+  $("reportEditButton").textContent="ПРАВИТЬ";
   const from=appRole==="employee" ? currentShift.opened_date : $("reportFrom").value;
   const to=appRole==="employee" ? currentShift.opened_date : ($("reportTo").value || from);
   const params = new URLSearchParams({from, to, role: appRole});
+  if(appRole==="admin" && $("reportFilter").value.trim()) params.set("filter", $("reportFilter").value.trim());
   if(appRole==="employee"){
     params.set("employeeName", appEmployee);
     params.set("shiftId", currentShift.id);
@@ -1544,13 +1866,11 @@ async function calculateReport(){
   if(!res.ok){
     $("reportMessage").hidden=false;$("reportMessage").className="message err";$("reportMessage").textContent=data.error;
   } else {
+    lastReportData = data;
     $("reportBox").hidden=false;
-    const periodLine = appRole === "employee"
-      ? '<div class="report-line"><span>Сотрудник</span><b>'+escapeHtml(appEmployee)+'</b></div>'+
-        '<div class="report-line"><span>Дата смены</span><b>'+currentShift.opened_date+'</b></div>'+
-        '<div class="report-line"><span>Открыта</span><b>'+currentShift.opened_at+'</b></div>'
-      : '<div class="report-line"><span>Период</span><b>'+data.period.from+' — '+data.period.to+'</b></div>';
-    $("reportBox").innerHTML = appRole === "admin" ? renderAdminReport(data, periodLine) : renderEmployeeReport(data, periodLine);
+    const periodLine = currentReportPrefix(data);
+    $("reportBox").innerHTML = appRole === "admin" ? renderAdminReport(data, periodLine) : renderEmployeeReport(data, periodLine, false);
+    $("reportEditButton").classList.toggle("hidden", appRole !== "employee" || !(data.salesRows || []).length);
   }
   $("reportButton").disabled=false;$("reportButton").textContent=appRole==="employee"?"РАССЧИТАТЬ":"Расчет за период";
 }
@@ -1609,6 +1929,62 @@ $("auditButton").onclick=async()=>{
   }
   $("auditButton").disabled=false;$("auditButton").textContent="Аудит за период";
 };
+document.addEventListener("click",(event)=>{
+  const button = event.target.closest(".delete-sale");
+  if(!button) return;
+  const row = button.closest("[data-sale-id]");
+  if(!row) return;
+  const deleted = row.dataset.delete === "1";
+  row.dataset.delete = deleted ? "0" : "1";
+  row.style.opacity = deleted ? "1" : ".45";
+  button.textContent = deleted ? "Удалить" : "Вернуть";
+});
+async function saveReportEdits(){
+  const rows = Array.from(document.querySelectorAll("[data-sale-id]"));
+  $("reportEditButton").disabled = true;
+  $("reportEditButton").textContent = "...";
+  for(const row of rows){
+    const id = row.dataset.saleId;
+    if(!id) continue;
+    if(row.dataset.delete === "1"){
+      const res = await fetch("/api/mobile/sales/"+encodeURIComponent(id), { method: "DELETE" });
+      if(!res.ok){ alert("Не удалось удалить запись"); $("reportEditButton").disabled=false; $("reportEditButton").textContent="SAVE"; return; }
+      continue;
+    }
+    const unitPrice = Number(row.querySelector(".edit-price")?.value || 0);
+    const quantitySold = Number(row.querySelector(".edit-sold")?.value || 0);
+    const quantityReturned = Number(row.querySelector(".edit-returned")?.value || 0);
+    const res = await fetch("/api/mobile/sales/"+encodeURIComponent(id), {
+      method: "PATCH",
+      headers: {"content-type":"application/json"},
+      body: JSON.stringify({ unitPrice, quantitySold, quantityReturned })
+    });
+    if(!res.ok){ const data = await res.json().catch(()=>({})); alert(data.error || "Не удалось сохранить правки"); $("reportEditButton").disabled=false; $("reportEditButton").textContent="SAVE"; return; }
+  }
+  reportEditMode = false;
+  $("reportEditButton").disabled = false;
+  $("reportEditButton").textContent = "ПРАВИТЬ";
+  await calculateReport();
+}
+async function loadWarehouseDebt(){
+  const res = await fetch("/api/mobile/warehouse/debt");
+  const data = await res.json();
+  const box = $("warehouseDebtBox");
+  const form = $("warehousePaymentForm");
+  box.hidden = false;
+  form.hidden = false;
+  if(!res.ok || !data.ok){
+    box.innerHTML = '<div class="message err">'+escapeHtml(data.error || "Не удалось загрузить долг склада")+'</div>';
+    return;
+  }
+  box.innerHTML =
+    '<div class="report-section">Долг за бутылки</div>'+
+    '<div class="report-line"><span>Приход</span><b>'+Number(data.bottles||0)+' шт. × 120</b></div>'+
+    '<div class="report-line"><span>Нал 115</span><b>'+money(data.cashRemaining)+' осталось</b></div>'+
+    '<div class="report-line"><span>Безнал 5</span><b>'+money(data.transferRemaining)+' осталось</b></div>'+
+    '<div class="report-line report-total"><span>Остаток долга</span><b>'+money(data.remainingTotal)+'</b></div>'+
+    '<div class="report-mini"><div>💵 оплачено<b>'+money(data.cashPaid)+'</b></div><div>🏦 оплачено<b>'+money(data.transferPaid)+'</b></div></div>';
+}
 function parseAmount(text){
   const match=String(text).replace(/\\s/g,"").match(/\\d+(?:[.,]\\d+)?/);
   return match?Number(match[0].replace(",",".")):0;
@@ -1622,6 +1998,16 @@ function expenseName(category){
 }
 function warehouseTypeName(type){
   return ({arrival:"Приход",return:"Возврат",remaining:"Остаток",writeoff:"Списание"})[type] || "Склад";
+}
+function paymentLabel(type){
+  if(type === "cash") return "НАЛ";
+  if(type === "transfer") return "БЕЗНАЛ";
+  return "—";
+}
+function coolerLabel(status){
+  if(status === "our") return "наш";
+  if(status === "not_our") return "не наш";
+  return "—";
 }
 function renderPriceRows(data){
   return (data.byPrice || []).map((item)=>
@@ -1637,8 +2023,34 @@ function renderExpenseRows(data){
     return '<div class="report-line"><span>'+title+' · '+pay+'</span><b>'+money(item.amount)+'</b></div>';
   }).join("");
 }
-function renderEmployeeReport(data, prefix){
+function currentReportPrefix(data = lastReportData){
+  return appRole === "employee"
+    ? '<div class="report-line"><span>Сотрудник</span><b>'+escapeHtml(appEmployee)+'</b></div>'+
+      '<div class="report-line"><span>Дата смены</span><b>'+(currentShift ? currentShift.opened_date : data?.period?.from || "")+'</b></div>'+
+      '<div class="report-line"><span>Открыта</span><b>'+(currentShift ? currentShift.opened_at : "")+'</b></div>'
+    : '<div class="report-line"><span>Период</span><b>'+data.period.from+' — '+data.period.to+'</b></div>'+
+      (data.filter ? '<div class="report-line"><span>Фильтр</span><b>'+escapeHtml(data.filter)+'</b></div>' : '');
+}
+function renderEditableSales(data){
+  const rows = data.salesRows || [];
+  if(!rows.length) return '<div class="report-line"><span>Поставки</span><b>нет</b></div>';
+  return '<div class="report-table">'+
+    '<div class="report-row head"><span>Клиент</span><span>Цена</span><span>Продал</span><span>Забрал</span><span>Сумма</span><span></span></div>'+
+    rows.map((row)=>
+      '<div class="report-row" data-sale-id="'+escapeHtml(row.id || '')+'">'+
+        '<b>'+escapeHtml(row.destination)+'</b>'+
+        '<input class="edit-price" inputmode="numeric" value="'+Number(row.unitPrice||0)+'" />'+
+        '<input class="edit-sold" inputmode="numeric" value="'+Number(row.quantitySold||0)+'" />'+
+        '<input class="edit-returned" inputmode="numeric" value="'+Number(row.quantityReturned||0)+'" />'+
+        '<b>'+money(row.amount)+'</b>'+
+        '<button class="danger-small delete-sale" type="button">Удалить</button>'+
+      '</div>'
+    ).join("")+
+  '</div>';
+}
+function renderEmployeeReport(data, prefix, editable=false){
   return prefix+
+    (editable ? '<div class="report-section">Правка поставок</div>'+renderEditableSales(data) : '')+
     '<div class="report-section">Бутылки</div>'+
     '<div class="report-line"><span>Сдано всего</span><b>'+Number(data.bottleTotal||0)+' шт.</b></div>'+
     '<div class="report-line"><span>Забрали обратно</span><b>'+Number(data.returnedTotal||0)+' шт.</b></div>'+
@@ -1653,46 +2065,64 @@ function renderEmployeeReport(data, prefix){
     '<div class="report-line report-total"><span>Итог после расходов</span><b>'+money(data.factTotal)+'</b></div>'+
     '<div class="report-mini"><div>💵 Наличные<b>'+money(data.cashBalance)+'</b></div><div>🏦 Безнал<b>'+money(data.transferBalance)+'</b></div></div>';
 }
-function renderGroupedAdminReports(data){
-  const groups = data.employeeBreakdown || [];
-  if(!groups.length) return '<div class="report-section">Сотрудники</div><div class="report-line"><span>Данные</span><b>нет записей</b></div>';
-  return groups.map((group)=>{
-    const summary = group.summary || {};
-    const title = group.kind === "warehouse" ? "Склад" : group.label;
-    return '<div class="report-section">'+escapeHtml(title)+'</div>'+
-      '<div class="report-line"><span>Сотрудник</span><b>'+escapeHtml(group.employeeName)+'</b></div>'+
-      '<div class="report-line"><span>Бутылки</span><b>'+Number(summary.bottleTotal||0)+' шт., забрали '+Number(summary.returnedTotal||0)+'</b></div>'+
-      renderPriceRows(summary)+
-      (group.kind === "warehouse"
-        ? '<div class="report-line"><span>Расчет по 70</span><b>'+money(summary.warehouseServiceAmount)+'</b></div>'
-        : '')+
-      '<div class="report-section">Расходы '+escapeHtml(title)+'</div>'+
-      renderExpenseRows(summary)+
-      '<div class="report-line"><span>Расходы итого</span><b>'+money(summary.expenseTotal)+'</b></div>'+
-      '<div class="report-line"><span>Нал / безнал</span><b>'+money(summary.cashIncome)+' / '+money(summary.transferIncome)+'</b></div>'+
-      '<div class="report-line report-total"><span>Итог</span><b>'+money(summary.factTotal)+'</b></div>';
-  }).join("");
+function renderClientTable(data){
+  const rows = data.clientRows || [];
+  if(!rows.length) return '<div class="report-line"><span>Клиенты</span><b>нет данных</b></div>';
+  return '<div class="report-table">'+
+    '<div class="report-row head"><span>Клиент</span><span>Нал/безнал</span><span>Продал</span><span>Забрал</span><span>Списания</span><span>Кулер</span></div>'+
+    rows.map((row)=>
+      '<div class="report-row">'+
+        '<b>'+escapeHtml(row.name)+'</b>'+
+        '<span>'+paymentLabel(row.paymentType)+'</span>'+
+        '<b>'+Number(row.sold||0)+'</b>'+
+        '<b>'+Number(row.returned||0)+'</b>'+
+        '<b>'+Number(row.writeoffs||0)+'</b>'+
+        '<span>'+coolerLabel(row.coolerStatus)+'</span>'+
+      '</div>'
+    ).join("")+
+  '</div>';
+}
+function renderExpenseTable(data){
+  const byType = { stretch: 0, parking: 0, salary: 0, other: 0 };
+  for(const item of data.expenseItems || []){
+    const comment = String(item.comment || "").toLowerCase();
+    if(item.category === "parking") byType.parking += Number(item.amount || 0);
+    else if(item.category === "salary") byType.salary += Number(item.amount || 0);
+    else if(comment.includes("стрейч")) byType.stretch += Number(item.amount || 0);
+    else byType.other += Number(item.amount || 0);
+  }
+  return '<div class="report-table">'+
+    '<div class="report-row head"><span>Стрейч</span><span>Парковка</span><span>Зарплата</span><span>Прочее</span><span></span><span></span></div>'+
+    '<div class="report-row"><b>'+money(byType.stretch)+'</b><b>'+money(byType.parking)+'</b><b>'+money(byType.salary)+'</b><b>'+money(byType.other)+'</b><span></span><span></span></div>'+
+  '</div>';
+}
+function renderProfitTable(data){
+  return '<div class="profit-cards">'+
+    '<div class="profit-card"><span>Продали</span><b>'+Number(data.bottleTotal||0)+' шт.</b></div>'+
+    '<div class="profit-card"><span>Забрали</span><b>'+Number(data.returnedTotal||0)+' шт.</b></div>'+
+    '<div class="profit-card"><span>Оборот</span><b>'+money(data.income)+'</b></div>'+
+    '<div class="profit-card"><span>Расходы</span><b>'+money(data.expenseTotal)+'</b></div>'+
+    '<div class="profit-card"><span>Чистая прибыль</span><b>'+money(data.profit ?? data.factTotal)+'</b></div>'+
+    '<div class="profit-card"><span>💵 / 🏦</span><b>'+money(data.cashIncome)+' / '+money(data.transferIncome)+'</b></div>'+
+  '</div>';
+}
+function renderWarehouseDebtReport(data){
+  const debt = data.warehouseDebt || {};
+  return '<div class="report-line"><span>Приход по 120</span><b>'+Number(debt.bottles||0)+' шт. / '+money(debt.totalDebt)+'</b></div>'+
+    '<div class="report-line"><span>Долг наличными 115</span><b>'+money(debt.cashRemaining)+' из '+money(debt.cashDebt)+'</b></div>'+
+    '<div class="report-line"><span>Долг безнал 5</span><b>'+money(debt.transferRemaining)+' из '+money(debt.transferDebt)+'</b></div>'+
+    '<div class="report-line report-total"><span>Остаток долга</span><b>'+money(debt.remainingTotal)+'</b></div>';
 }
 function renderAdminReport(data, prefix){
-  const warehouseRows = (data.byWarehouse || []).length
-    ? data.byWarehouse.map((item)=>
-      '<div class="report-line"><span>'+escapeHtml(item.name)+' · '+item.price+' руб.</span><b>'+Number(item.bottles||0)+' шт., забрали '+Number(item.returned||0)+' / '+money(item.amount)+'</b></div>'
-    ).join("")
-    : '<div class="report-line"><span>Склады</span><b>нет продаж</b></div>';
-  const coolerRows = (data.coolerItems || []).length
-    ? data.coolerItems.map((item)=>{
-      const status = item.coolerStatus === "our" ? "наш" : "не наш";
-      return '<div class="report-line"><span>'+escapeHtml(item.destination)+' · '+status+'</span><b>'+Number(item.bottles||0)+' шт., забрали '+Number(item.returned||0)+'</b></div>';
-    }).join("")
-    : '<div class="report-line"><span>Кулеры</span><b>нет данных</b></div>';
   return prefix+
-    renderGroupedAdminReports(data)+
-    '<div class="report-section">Общий итог</div>'+
-    '<div class="report-section">Склады</div>'+
-    warehouseRows+
-    '<div class="report-section">Кулеры</div>'+
-    coolerRows+
-    renderEmployeeReport(data, "");
+    '<div class="report-section">Таблица клиенты</div>'+
+    renderClientTable(data)+
+    '<div class="report-section">Расходы сотрудников</div>'+
+    renderExpenseTable(data)+
+    '<div class="report-section">Таблица прибыли</div>'+
+    renderProfitTable(data)+
+    '<div class="report-section">Склад и долг за бутылки</div>'+
+    renderWarehouseDebtReport(data);
 }
 async function loadAssets(){
   const res = await fetch("/api/mobile/assets");
@@ -1716,6 +2146,10 @@ renderWarehouse();
 applyShiftState();
 render();
 if (appRole === "admin") loadAssets();
+window.addEventListener("load", () => {
+  setTimeout(() => $("bootLoader")?.classList.add("hidden"), 350);
+});
+setTimeout(() => $("bootLoader")?.classList.add("hidden"), 1800);
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
 }

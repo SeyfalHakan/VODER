@@ -144,6 +144,17 @@ create table public.employee_shifts (
   updated_at timestamptz not null default now()
 );
 
+create table public.warehouse_payments (
+  id uuid primary key default gen_random_uuid(),
+  report_date date not null,
+  warehouse_name text not null default 'Склад',
+  cash_amount numeric(12,2) not null default 0,
+  transfer_amount numeric(12,2) not null default 0,
+  comment text,
+  source text not null default 'mobile',
+  created_at timestamptz not null default now()
+);
+
 create table public.pavilion_delivery_reports (
   id uuid primary key default gen_random_uuid(),
   report_date date not null,
@@ -208,6 +219,7 @@ alter table public.remaining_stock_reports enable row level security;
 alter table public.defective_write_offs enable row level security;
 alter table public.expenses enable row level security;
 alter table public.employee_shifts enable row level security;
+alter table public.warehouse_payments enable row level security;
 alter table public.pavilion_delivery_reports enable row level security;
 alter table public.coolers enable row level security;
 alter table public.daily_summaries enable row level security;
