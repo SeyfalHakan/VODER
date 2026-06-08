@@ -377,7 +377,7 @@ async function saveSale(body) {
     return { status: 400, body: { error: "Выберите цену 200, 250 или 300 руб." } };
   }
   if (!["cash", "transfer"].includes(paymentType)) {
-    return { status: 400, body: { error: "Выберите НАЛ или БЕЗНАЛ" } };
+    return { status: 400, body: { error: "Выберите НАЛ или БНАЛ" } };
   }
 
   const payload = {
@@ -394,7 +394,7 @@ async function saveSale(body) {
     quantity_sold: quantityDelivered,
     unit_price: unitPrice,
     cash_amount: quantityDelivered * unitPrice,
-    comments: `${paymentType === "cash" ? "Оплата: НАЛ" : "Оплата: БЕЗНАЛ"}; Кулер: ${coolerStatus === "our" ? "наш" : "не наш"}${shiftId ? `; Смена: ${shiftId}` : ""}`,
+    comments: `${paymentType === "cash" ? "Оплата: НАЛ" : "Оплата: БНАЛ"}; Кулер: ${coolerStatus === "our" ? "наш" : "не наш"}${shiftId ? `; Смена: ${shiftId}` : ""}`,
     source: "mobile"
   };
 
@@ -1125,7 +1125,7 @@ function paymentKind(row) {
   if (raw === "card" || raw === "transfer") return "transfer";
 
   const comments = String(row.comments ?? row.comment ?? "").toLowerCase();
-  if (comments.includes("безнал") || comments.includes("карта") || comments.includes("transfer")) return "transfer";
+  if (comments.includes("бнал") || comments.includes("безнал") || comments.includes("карта") || comments.includes("transfer")) return "transfer";
   return "cash";
 }
 
@@ -1252,7 +1252,7 @@ function mobileHtml() {
     .logged-out main{padding:0!important}.logged-out #homePage>.panel{padding-bottom:calc(var(--device-bottom) + 34px)!important}
     .footer{height:0!important;min-height:0!important;background:none!important;background-color:transparent!important;box-shadow:none!important;border:0!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;overflow:visible!important}.footer:before,.footer:after{display:none!important}.footer-inner{background:linear-gradient(135deg,rgba(43,108,255,.38),rgba(146,196,255,.18) 58%,rgba(42,23,96,.34))!important;border:1px solid rgba(169,207,255,.28)!important;box-shadow:0 18px 46px rgba(18,50,145,.36),0 0 34px rgba(87,149,255,.20),inset 0 1px 0 rgba(255,255,255,.22),inset 0 -1px 0 rgba(25,55,160,.22)!important;backdrop-filter:blur(24px) saturate(145%)!important;-webkit-backdrop-filter:blur(24px) saturate(145%)!important}.footer button{color:rgba(226,238,255,.72)!important}.footer button.active{background:linear-gradient(135deg,#2d7cff 0%,#6ba9ff 58%,#b8d7ff 130%)!important;color:white!important;box-shadow:0 12px 30px rgba(70,142,255,.48),inset 0 1px 0 rgba(255,255,255,.34)!important}
     .boot-loader{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:radial-gradient(circle at 50% 78%,rgba(74,0,216,.62),transparent 36%),linear-gradient(180deg,#05010d,#180044 120%);transition:opacity .28s ease,visibility .28s ease}.boot-loader.hidden{opacity:0;visibility:hidden;pointer-events:none}.boot-loader-card{display:grid;place-items:center;gap:16px;color:white}.boot-loader img{width:92px;height:92px;border-radius:26px;box-shadow:0 24px 70px rgba(50,0,150,.46)}.loader-ring{width:42px;height:42px;border-radius:50%;border:3px solid rgba(255,255,255,.18);border-top-color:#a1bdff;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-    .report-tools{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end}.report-tools label{min-width:0}.mini-btn{height:44px;border:1px solid rgba(216,225,255,.18);border-radius:999px;background:rgba(255,255,255,.08);color:#fff;font-size:12px;font-weight:900;padding:0 14px}.report-table{display:grid;gap:7px}.report-row{display:grid;grid-template-columns:1.3fr .8fr .7fr .7fr .7fr .9fr;gap:6px;align-items:center;padding:8px;border:1px solid rgba(216,225,255,.12);border-radius:14px;background:rgba(255,255,255,.055);font-size:11px}.report-row.head{color:#a1bdff;font-weight:900;background:rgba(161,189,255,.08)}.report-row b{font-size:12px}.report-row input{height:34px!important;font-size:13px!important;border-radius:12px!important;padding:0 8px}.report-row .danger-small{height:34px;border:0;border-radius:12px;background:rgba(255,80,106,.18);color:#ffb3bf;font-weight:900}.profit-cards{display:grid;grid-template-columns:1fr 1fr;gap:8px}.profit-card{padding:10px;border-radius:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10)}.profit-card span{display:block;color:var(--muted);font-size:11px;font-weight:800}.profit-card b{display:block;margin-top:4px;font-size:16px}.warehouse-debt{display:grid;gap:9px;padding:10px;border-radius:20px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10)}.paid-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .report-tools{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end}.report-tools label{min-width:0}.mini-btn{height:44px;border:1px solid rgba(216,225,255,.18);border-radius:999px;background:rgba(255,255,255,.08);color:#fff;font-size:12px;font-weight:900;padding:0 14px}.report-table{display:grid;gap:7px;overflow-x:auto;padding-bottom:2px}.report-row{display:grid;grid-template-columns:1.3fr .8fr .7fr .7fr .7fr .9fr;gap:6px;align-items:center;min-width:390px;padding:8px;border:1px solid rgba(216,225,255,.12);border-radius:14px;background:rgba(255,255,255,.055);font-size:11px}.report-row.head{color:#a1bdff;font-weight:900;background:rgba(161,189,255,.08)}.report-row b{font-size:12px}.report-row span,.report-row b{min-width:0;overflow:hidden;text-overflow:ellipsis}.client-table .report-row{grid-template-columns:1.25fr .55fr .55fr .55fr .9fr .55fr .65fr;min-width:470px}.client-table .report-row b.paid{color:#dbe8ff;font-size:12px}.client-table .method{display:inline-grid;place-items:center;min-width:42px;height:24px;border-radius:999px;background:rgba(161,189,255,.12);border:1px solid rgba(161,189,255,.18);font-weight:900;color:#fff}.report-row input{height:34px!important;font-size:13px!important;border-radius:12px!important;padding:0 8px}.report-row .danger-small{height:34px;border:0;border-radius:12px;background:rgba(255,80,106,.18);color:#ffb3bf;font-weight:900}.profit-cards{display:grid;grid-template-columns:1fr 1fr;gap:8px}.profit-card{padding:10px;border-radius:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10)}.profit-card span{display:block;color:var(--muted);font-size:11px;font-weight:800}.profit-card b{display:block;margin-top:4px;font-size:16px}.warehouse-debt{display:grid;gap:9px;padding:10px;border-radius:20px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10)}.paid-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   </style>
 </head>
 <body>
@@ -1308,7 +1308,7 @@ function mobileHtml() {
         <label id="returnedWrap"><span>Забрал</span><input id="returned" inputmode="numeric" pattern="[0-9]*" placeholder="3" /></label>
       </div>
       <section class="card prices"><button id="price200" class="price" type="button">200 руб.</button><button id="price250" class="price" type="button">250 руб.</button><button id="price300" class="price active" type="button">300 руб.</button></section>
-      <section class="card payments"><button id="cash" class="payment active" type="button">НАЛ</button><button id="transfer" class="payment" type="button">БЕЗНАЛ</button></section>
+      <section class="card payments"><button id="cash" class="payment active" type="button">НАЛ</button><button id="transfer" class="payment" type="button">БНАЛ</button></section>
       <div class="sum"><div class="row"><span>Цена</span><b id="priceText">300 руб. / бутылка</b></div><div class="row"><span>Итого</span><b class="total" id="total">0 руб.</b></div></div>
       <p id="message" hidden></p>
       <button id="submit" class="submit" type="submit">Сохранить продажу</button>
@@ -2001,7 +2001,7 @@ function warehouseTypeName(type){
 }
 function paymentLabel(type){
   if(type === "cash") return "НАЛ";
-  if(type === "transfer") return "БЕЗНАЛ";
+  if(type === "transfer") return "БНАЛ";
   return "—";
 }
 function coolerLabel(status){
@@ -2019,7 +2019,7 @@ function renderExpenseRows(data){
   if(!items.length) return '<div class="report-line"><span>Расходы</span><b>нет</b></div>';
   return items.map((item)=>{
     const title = escapeHtml(item.comment || expenseName(item.category));
-    const pay = item.paymentType === "cash" ? "НАЛ" : "БЕЗНАЛ";
+    const pay = item.paymentType === "cash" ? "НАЛ" : "БНАЛ";
     return '<div class="report-line"><span>'+title+' · '+pay+'</span><b>'+money(item.amount)+'</b></div>';
   }).join("");
 }
@@ -2068,14 +2068,15 @@ function renderEmployeeReport(data, prefix, editable=false){
 function renderClientTable(data){
   const rows = data.clientRows || [];
   if(!rows.length) return '<div class="report-line"><span>Клиенты</span><b>нет данных</b></div>';
-  return '<div class="report-table">'+
-    '<div class="report-row head"><span>Клиент</span><span>Нал/безнал</span><span>Продал</span><span>Забрал</span><span>Списания</span><span>Кулер</span></div>'+
+  return '<div class="report-table client-table">'+
+    '<div class="report-row head"><span>Клиент</span><span>Метод</span><span>Продал</span><span>Забрал</span><span>Оплатил</span><span>Спис.</span><span>Кулер</span></div>'+
     rows.map((row)=>
       '<div class="report-row">'+
         '<b>'+escapeHtml(row.name)+'</b>'+
-        '<span>'+paymentLabel(row.paymentType)+'</span>'+
+        '<span class="method">'+paymentLabel(row.paymentType)+'</span>'+
         '<b>'+Number(row.sold||0)+'</b>'+
         '<b>'+Number(row.returned||0)+'</b>'+
+        '<b class="paid">'+money(row.amount)+'</b>'+
         '<b>'+Number(row.writeoffs||0)+'</b>'+
         '<span>'+coolerLabel(row.coolerStatus)+'</span>'+
       '</div>'
