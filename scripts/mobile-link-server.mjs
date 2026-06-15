@@ -244,6 +244,16 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/mobile/destinations") {
+    try {
+      const result = await buildDestinationSuggestions(url.searchParams.get("q"), url.searchParams.get("channel"));
+      send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
+    } catch (error) {
+      send(response, 500, "application/json; charset=utf-8", JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/mobile/reset-data") {
     try {
       const body = JSON.parse(await readBody(request));
@@ -1085,6 +1095,62 @@ async function buildAssets() {
   };
 }
 
+async function buildDestinationSuggestions(queryInput = "", channelInput = "") {
+  const query = String(queryInput ?? "").trim().toLowerCase();
+  const channel = String(channelInput ?? "").trim();
+  if (!query) return { status: 200, body: { ok: true, suggestions: [] } };
+
+  const names = [];
+  const addName = (value) => {
+    const name = String(value ?? "").trim();
+    if (name) names.push(name);
+  };
+  const addSaleName = (row) => {
+    if (channel === "pavilion" && row.sale_channel !== "pavilion") return;
+    if (channel === "warehouse" && row.sale_channel !== "warehouse") return;
+    addName(row.destination_name ?? row.warehouse_name ?? row.pavilion_code);
+  };
+
+  memorySales.forEach(addSaleName);
+  if (channel !== "pavilion") {
+    memoryWarehouse.forEach((row) => addName(row.warehouse_name));
+  }
+
+  const supabase = await createSupabaseAdminClient();
+  if (supabase) {
+    const [salesResult, arrivalsResult, remainsResult, defectsResult] = await Promise.all([
+      supabase.from("shipments").select("sale_channel,destination_name,warehouse_name,pavilion_code").limit(500),
+      supabase.from("stock_arrivals").select("warehouse_name").limit(300),
+      supabase.from("remaining_stock_reports").select("warehouse_name").limit(300),
+      supabase.from("defective_write_offs").select("warehouse_name").limit(300)
+    ]);
+    (salesResult.data ?? []).forEach(addSaleName);
+    if (channel !== "pavilion") {
+      (arrivalsResult.data ?? []).forEach((row) => addName(row.warehouse_name));
+      (remainsResult.data ?? []).forEach((row) => addName(row.warehouse_name));
+      (defectsResult.data ?? []).forEach((row) => addName(row.warehouse_name));
+    }
+  }
+
+  const seen = new Set();
+  const suggestions = names
+    .filter((name) => name.toLowerCase().includes(query))
+    .sort((a, b) => {
+      const aStarts = a.toLowerCase().startsWith(query) ? 0 : 1;
+      const bStarts = b.toLowerCase().startsWith(query) ? 0 : 1;
+      return aStarts - bStarts || a.localeCompare(b, "ru");
+    })
+    .filter((name) => {
+      const key = name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 8);
+
+  return { status: 200, body: { ok: true, suggestions } };
+}
+
 async function createSupabaseAdminClient() {
   const { url, key } = getSupabaseEnv();
   if (!url || !key) return null;
@@ -1256,7 +1322,7 @@ function mobileHtml() {
     form,.panel{margin-top:14px;padding:16px;display:flex;flex:1;flex-direction:column;gap:16px}.page{display:none}.page.active{display:flex;flex-direction:column;flex:1}label span{display:block;margin-bottom:8px;color:var(--muted);font-size:14px;font-weight:700}input,textarea{width:100%;border:1px solid var(--line);border-radius:12px;padding:0 14px;color:var(--ink);font-size:20px;font-weight:800;outline:none}input{height:58px}textarea{min-height:118px;padding-top:14px;resize:vertical;font-size:17px;line-height:1.35}input:focus,textarea:focus{border-color:var(--aqua)}
     .sum{margin-top:auto;border-radius:12px;background:var(--soft);padding:14px}.row{display:flex;justify-content:space-between;gap:12px}.row+.row{margin-top:8px}.row span:first-child{color:var(--muted)}.total{font-size:28px;font-weight:900}.message{border-radius:12px;padding:10px 12px;font-size:14px}.ok{background:#ecfdf5;color:#047857}.err{background:#fef2f2;color:var(--danger)}.submit{height:58px;border:0;border-radius:12px;background:var(--aqua);color:white;font-size:17px;font-weight:900;box-shadow:0 18px 45px rgba(16,32,42,.08)}.submit:disabled{opacity:.65}
     .expense-types,.report-actions{display:grid;grid-template-columns:1fr;gap:8px}.expense-btn{min-height:58px;border-radius:12px;border:1px solid var(--line);background:white;color:var(--muted);font-size:17px;font-weight:800}.expense-btn.active{border-color:var(--aqua);background:var(--aqua);color:white}.hint{margin:0;color:var(--muted);font-size:13px;line-height:1.45}.report-box{display:grid;gap:10px;border-radius:12px;background:var(--soft);padding:14px}.report-line{display:flex;justify-content:space-between;gap:12px}.report-line b{text-align:right}.report-section{margin-top:6px;padding-top:10px;border-top:1px solid var(--line);font-size:13px;color:var(--muted);font-weight:900;text-transform:uppercase}.report-total{font-size:16px}.report-total b{font-size:20px}.report-mini{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:-2px}.report-mini div{border:1px solid var(--line);border-radius:10px;background:white;padding:8px;font-size:12px;color:var(--muted)}.report-mini b{display:block;margin-top:3px;color:var(--ink);font-size:14px}.fixed-list{margin:0;padding-left:18px;color:var(--muted);font-size:13px;line-height:1.5}.asset-grid{display:grid;grid-template-columns:1fr;gap:10px}.asset-card{display:grid;grid-template-columns:42px 1fr auto;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;background:white;padding:12px}.asset-icon{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:var(--soft);font-size:22px}.asset-title{font-size:13px;color:var(--muted);font-weight:700}.asset-value{font-size:24px;font-weight:900}.asset-sub{font-size:12px;color:var(--muted)}.asset-line{height:14px;border-radius:99px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);box-shadow:0 10px 28px rgba(47,123,255,.18),inset 0 1px 0 rgba(255,255,255,.18);overflow:hidden;display:flex;gap:2px;padding:2px}.asset-line span{display:block;height:100%;border-radius:99px;transition:width .25s ease}.asset-line-warehouse{background:#67dcff}.asset-line-client{background:#5b35d8}.asset-line-writeoff{background:#7f1231}.footer{position:fixed;left:0;right:0;bottom:0;z-index:10;border-top:1px solid var(--line);background:rgba(255,255,255,.96);backdrop-filter:blur(12px);padding:8px 12px calc(env(safe-area-inset-bottom) + 8px)}.footer-inner{max-width:430px;margin:0 auto;display:grid;grid-template-columns:repeat(7,minmax(66px,1fr));gap:6px;overflow-x:auto}.footer button{height:54px;border:0;border-radius:12px;background:var(--soft);color:var(--muted);font-size:11px;font-weight:900}.footer button.active{background:var(--aqua);color:white}.start-screen{display:none}.start-card{width:min(430px,100%);display:grid;gap:16px;padding:18px}.shift-pill{border-radius:10px;background:#ecfdf5;color:#047857;padding:9px 10px;font-size:13px;font-weight:800}.close-btn{background:#10202a!important;color:white!important}.closed-summary{display:grid;gap:10px;border-radius:12px;background:var(--soft);padding:14px}.hidden{display:none!important}.admin-only.hidden{display:none!important}.pin-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.pin-grid input{text-align:center;font-size:26px}.home-actions{display:grid;gap:12px}.logout-btn{background:#10202a!important}
-    button,.report-line span,.report-line b,label span{white-space:nowrap}.tab,.price,.payment,.expense-btn,.submit{font-size:clamp(12px,3.5vw,16px);overflow:hidden;text-overflow:ellipsis}.tabs{grid-template-columns:1fr}.tab{display:grid;place-items:center;height:38px;border:0!important;background:transparent!important;color:var(--ink)!important;font-size:18px!important;font-weight:900;pointer-events:none}.footer button{font-size:10px}.work-kpi{margin-top:12px;padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px}.work-kpi div{border-radius:12px;background:var(--soft);padding:10px}.work-kpi span{display:block;color:var(--muted);font-size:12px;font-weight:800;white-space:nowrap}.work-kpi b{display:block;margin-top:4px;font-size:18px;white-space:nowrap}.destination-grid{display:grid;grid-template-columns:1fr 54px 54px;gap:8px;align-items:end}.cooler-btn{height:58px;border-radius:12px;border:1px solid var(--line);background:white;font-size:22px;font-weight:900}.cooler-btn.our.active{background:#16a34a;color:white;border-color:#16a34a}.cooler-btn.not.active{background:#dc2626;color:white;border-color:#dc2626}
+    button,.report-line span,.report-line b,label span{white-space:nowrap}.tab,.price,.payment,.expense-btn,.submit{font-size:clamp(12px,3.5vw,16px);overflow:hidden;text-overflow:ellipsis}.tabs{grid-template-columns:1fr}.tab{display:grid;place-items:center;height:38px;border:0!important;background:transparent!important;color:var(--ink)!important;font-size:18px!important;font-weight:900;pointer-events:none}.footer button{font-size:10px}.work-kpi{margin-top:12px;padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px}.work-kpi div{border-radius:12px;background:var(--soft);padding:10px}.work-kpi span{display:block;color:var(--muted);font-size:12px;font-weight:800;white-space:nowrap}.work-kpi b{display:block;margin-top:4px;font-size:18px;white-space:nowrap}.destination-grid{display:grid;grid-template-columns:1fr 54px 54px;gap:8px;align-items:end}.destination-field{position:relative}.suggestions{position:absolute;left:0;right:0;top:calc(100% + 7px);z-index:30;display:grid;gap:6px;padding:7px;border:1px solid rgba(216,225,255,.18);border-radius:18px;background:rgba(11,4,28,.96);box-shadow:0 18px 44px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.10);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}.suggestion-btn{min-height:38px;border:1px solid rgba(216,225,255,.12);border-radius:13px;background:rgba(255,255,255,.07);color:#fff;text-align:left;padding:0 12px;font-size:14px;font-weight:850}.suggestion-btn:active{background:linear-gradient(135deg,#320096,#849bff)}.cooler-btn{height:58px;border-radius:12px;border:1px solid var(--line);background:white;font-size:22px;font-weight:900}.cooler-btn.our.active{background:#16a34a;color:white;border-color:#16a34a}.cooler-btn.not.active{background:#dc2626;color:white;border-color:#dc2626}
     :root{--ink:#f7fbff;--muted:#9ea8bb;--line:rgba(255,255,255,.14);--aqua:#2e7bff;--soft:rgba(255,255,255,.07);--danger:#ff6176;--panel:rgba(13,16,27,.78);--panel2:rgba(24,28,43,.68);--glow:#78b8ff}
     *{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif!important}
     body{position:relative;min-height:100vh;background:radial-gradient(circle at 72% 0%,rgba(127,190,255,.46),transparent 34%),radial-gradient(circle at 22% 18%,rgba(39,112,255,.54),transparent 34%),linear-gradient(180deg,#02040a 0%,#07101b 46%,#020308 100%);color:var(--ink);overflow-x:hidden}
@@ -1350,7 +1416,7 @@ function mobileHtml() {
     <section class="card tabs"><div id="warehouse" class="tab">Склад</div><div id="pavilion" class="tab active">Павильон</div></section>
     <section id="warehouseMini" class="card work-kpi hidden"><div><span>📦 Продано бутылок</span><b id="miniBottles">0 шт.</b></div><div><span>💰 Расчет по 70</span><b id="miniEarning">0 руб.</b></div></section>
     <form id="form" class="card">
-      <div class="destination-grid"><label><span id="destinationLabel">Номер павильона</span><input id="destination" type="text" inputmode="text" placeholder="Например: 12" autocomplete="off" required /></label><button id="coolerOur" class="cooler-btn our active" type="button">💧</button><button id="coolerNot" class="cooler-btn not" type="button">💧</button></div>
+      <div class="destination-grid"><label class="destination-field"><span id="destinationLabel">Номер павильона</span><input id="destination" type="text" inputmode="text" placeholder="Например: 12" autocomplete="off" required /><div id="destinationSuggestions" class="suggestions hidden"></div></label><button id="coolerOur" class="cooler-btn our active" type="button">💧</button><button id="coolerNot" class="cooler-btn not" type="button">💧</button></div>
       <div class="quantity-grid">
         <label><span>Продал</span><input id="sold" inputmode="numeric" pattern="[0-9]*" placeholder="20" required /></label>
         <label id="returnedWrap"><span>Забрал</span><input id="returned" inputmode="numeric" pattern="[0-9]*" placeholder="3" /></label>
@@ -1459,6 +1525,7 @@ let lastClosedReport = localStorage.getItem("waterOpsLastClosedReport") || "";
 let lastReportData = null;
 let reportEditMode = false;
 let adminReportPaymentFilter = "";
+let destinationSuggestTimer = null;
 const $ = (id) => document.getElementById(id);
 function applyRoleState(){
   const loggedIn = appRole === "employee" || appRole === "admin";
@@ -1573,6 +1640,32 @@ function render(){
   const sold = Number($("sold").value || 0);
   $("total").textContent = (sold * unitPrice) + " руб.";
 }
+function hideDestinationSuggestions(){
+  $("destinationSuggestions").classList.add("hidden");
+  $("destinationSuggestions").innerHTML = "";
+}
+async function loadDestinationSuggestions(){
+  clearTimeout(destinationSuggestTimer);
+  destinationSuggestTimer = setTimeout(async()=>{
+    const query = $("destination").value.trim();
+    if(!query){
+      hideDestinationSuggestions();
+      return;
+    }
+    const params = new URLSearchParams({ q: query, channel: saleChannel });
+    const res = await fetch("/api/mobile/destinations?"+params.toString());
+    const data = await res.json().catch(()=>({suggestions:[]}));
+    const suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+    if(!res.ok || !suggestions.length){
+      hideDestinationSuggestions();
+      return;
+    }
+    $("destinationSuggestions").innerHTML = suggestions.map((name)=>
+      '<button class="suggestion-btn" type="button" data-name="'+escapeHtml(name)+'">'+escapeHtml(name)+'</button>'
+    ).join("");
+    $("destinationSuggestions").classList.remove("hidden");
+  }, 120);
+}
 function renderExpense(){
   $("expenseParking").classList.toggle("active", selectedExpenses.has("parking"));
   $("expenseStretch").classList.toggle("active", selectedExpenses.has("stretch"));
@@ -1625,6 +1718,8 @@ $("reportTransferFilter").onclick=()=>{adminReportPaymentFilter=adminReportPayme
 $("coolerOur").onclick=()=>{coolerStatus="our";render()};
 $("coolerNot").onclick=()=>{coolerStatus="not_our";render()};
 $("sold").oninput=render;
+$("destination").oninput=loadDestinationSuggestions;
+$("destination").onfocus=loadDestinationSuggestions;
 $("navHome").onclick=()=>showPage("home");
 $("navWork").onclick=()=>showPage("work");
 $("navExpenses").onclick=()=>showPage("expenses");
@@ -2025,6 +2120,14 @@ $("auditButton").onclick=async()=>{
   $("auditButton").disabled=false;$("auditButton").textContent="Аудит за период";
 };
 document.addEventListener("click",(event)=>{
+  const suggestion = event.target.closest(".suggestion-btn");
+  if(suggestion){
+    $("destination").value = suggestion.dataset.name || suggestion.textContent || "";
+    hideDestinationSuggestions();
+    $("destination").focus();
+    return;
+  }
+  if(!event.target.closest(".destination-field")) hideDestinationSuggestions();
   const toggle = event.target.closest(".client-toggle");
   if(toggle){
     const wrapper = toggle.closest(".client-list");
