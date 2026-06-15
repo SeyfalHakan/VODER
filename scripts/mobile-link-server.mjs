@@ -244,6 +244,16 @@ const server = createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/mobile/coolers") {
+    try {
+      const result = await buildCoolerRegistry(url.searchParams.get("filter"));
+      send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
+    } catch (error) {
+      send(response, 500, "application/json; charset=utf-8", JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/mobile/destinations") {
     try {
       const result = await buildDestinationSuggestions(url.searchParams.get("q"), url.searchParams.get("channel"));
@@ -479,7 +489,7 @@ async function deleteSale(id) {
 
 async function resetUserData(passwordInput) {
   const password = String(passwordInput ?? "").trim();
-  if (password !== "6969") return { status: 401, body: { error: "Неверный пароль" } };
+  if (password !== "1996") return { status: 401, body: { error: "Неверный пароль" } };
 
   memorySales.splice(0);
   memoryExpenses.splice(0);
@@ -515,7 +525,7 @@ function loginByPassword(passwordInput) {
     "1111": { role: "employee", employeeName: "Сотрудник 1", employeeKind: "pavilion", saleChannel: "pavilion" },
     "2222": { role: "employee", employeeName: "Сотрудник 2", employeeKind: "pavilion", saleChannel: "pavilion" },
     "0000": { role: "employee", employeeName: "Склад", employeeKind: "warehouse", saleChannel: "warehouse" },
-    "6969": { role: "admin", employeeName: "Админ", employeeKind: "admin", saleChannel: "pavilion" }
+    "1996": { role: "admin", employeeName: "Админ", employeeKind: "admin", saleChannel: "pavilion" }
   };
   const user = users[password];
   if (!user) return { status: 401, body: { error: "Неверный пароль" } };
@@ -1151,6 +1161,55 @@ async function buildDestinationSuggestions(queryInput = "", channelInput = "") {
   return { status: 200, body: { ok: true, suggestions } };
 }
 
+async function buildCoolerRegistry(filterInput = "") {
+  const filter = String(filterInput ?? "").trim().toLowerCase();
+  let sales = memorySales;
+
+  const supabase = await createSupabaseAdminClient();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("shipments")
+      .select("id,report_date,created_at,employee_name,sale_channel,destination_name,warehouse_name,pavilion_code,comments");
+    if (error) return { status: 500, body: { error: error.message } };
+    sales = data ?? [];
+  }
+
+  const latest = {};
+  for (const row of sales) {
+    const explicitCoolerStatus = explicitCoolerStatusFromRow(row);
+    if (!explicitCoolerStatus) continue;
+    const name = clientName(row);
+    const channel = String(row.sale_channel ?? "pavilion");
+    const key = `${channel}__${name.toLowerCase()}`;
+    const stamp = String(row.created_at ?? row.report_date ?? "");
+    const currentStamp = latest[key]?.stamp ?? "";
+    if (!latest[key] || stamp >= currentStamp) {
+      latest[key] = {
+        key,
+        stamp,
+        name,
+        channel,
+        employeeName: String(row.employee_name ?? ""),
+        coolerStatus: explicitCoolerStatus,
+        date: String(row.report_date ?? "")
+      };
+    }
+  }
+
+  const rows = Object.values(latest)
+    .filter((row) => row.coolerStatus === "our")
+    .filter((row) => !filter || row.name.toLowerCase().includes(filter))
+    .sort((a, b) => a.name.localeCompare(b.name, "ru"))
+    .map((row) => ({
+      name: row.name,
+      channel: row.channel,
+      employeeName: row.employeeName,
+      date: row.date
+    }));
+
+  return { status: 200, body: { ok: true, total: rows.length, rows, filter: filterInput } };
+}
+
 async function createSupabaseAdminClient() {
   const { url, key } = getSupabaseEnv();
   if (!url || !key) return null;
@@ -1247,6 +1306,13 @@ function normalizeCoolerStatus(value) {
 function coolerStatusFromRow(row) {
   const comments = String(row.comments ?? row.comment ?? "").toLowerCase();
   return comments.includes("кулер: не наш") ? "not_our" : "our";
+}
+
+function explicitCoolerStatusFromRow(row) {
+  const comments = String(row.comments ?? row.comment ?? "").toLowerCase();
+  if (comments.includes("кулер: не наш")) return "not_our";
+  if (comments.includes("кулер: наш")) return "our";
+  return "";
 }
 
 function employeeDisplayName(value) {
@@ -1507,8 +1573,20 @@ function mobileHtml() {
       <p id="auditMessage" hidden></p>
     </div>
   </section>
+
+  <section id="coolersPage" class="page admin-only hidden">
+    <div class="card panel">
+      <div class="report-box">
+        <div class="report-line"><span>Наши кулеры</span><b id="coolerTotal">0 шт.</b></div>
+        <label><span>Поиск павильона/склада</span><input id="coolerFilter" type="text" inputmode="text" placeholder="Например: Администрация" /></label>
+        <div id="coolerList" class="cooler-list"></div>
+        <button id="coolerToggle" class="mini-btn hidden" type="button">Развернуть</button>
+        <p id="coolerMessage" class="hint">Список собирается из отметок сотрудников “кулер наш”.</p>
+      </div>
+    </div>
+  </section>
 </div></main>
-<footer class="footer"><div class="footer-inner"><button id="navHome" class="active" type="button" aria-label="Главная" title="Главная"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h5v-5h3v5h5v-9.5"/></svg><span class="nav-label">Главная</span></button><button id="navWork" class="auth-only hidden" type="button" aria-label="Работа" title="Работа"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7.5h14a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9.5a2 2 0 0 1 2-2Z"/><path d="M8 7.5V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v1.5"/></svg><span class="nav-label">Работа</span></button><button id="navExpenses" class="auth-only hidden" type="button" aria-label="Расходы" title="Расходы"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8h12"/><path d="M6 12h12"/><path d="M6 16h8"/><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13A2.5 2.5 0 0 1 17.5 21h-11A2.5 2.5 0 0 1 4 18.5Z"/></svg><span class="nav-label">Расходы</span></button><button id="navReport" class="auth-only hidden" type="button" aria-label="Отчет" title="Отчет"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10"/><path d="M12 20V5"/><path d="M19 20v-7"/><path d="M3 20h18"/></svg><span class="nav-label">Отчет</span></button><button id="navWarehouse" class="admin-only hidden" type="button" aria-label="Склад" title="Склад"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10 12 5l8 5"/><path d="M5.5 10.5V20h13V10.5"/><path d="M9 20v-6h6v6"/></svg><span class="nav-label">Склад</span></button><button id="navAudit" class="admin-only hidden" type="button" aria-label="Аудит" title="Аудит"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8"/><path d="M9 4v2a2 2 0 0 1-2 2H5v14h14V8h-2a2 2 0 0 1-2-2V4"/><path d="m8 15 2.5 2.5L16 12"/></svg><span class="nav-label">Аудит</span></button></div></footer>
+<footer class="footer"><div class="footer-inner"><button id="navHome" class="active" type="button" aria-label="Главная" title="Главная"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h5v-5h3v5h5v-9.5"/></svg><span class="nav-label">Главная</span></button><button id="navWork" class="auth-only hidden" type="button" aria-label="Работа" title="Работа"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7.5h14a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9.5a2 2 0 0 1 2-2Z"/><path d="M8 7.5V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v1.5"/></svg><span class="nav-label">Работа</span></button><button id="navExpenses" class="auth-only hidden" type="button" aria-label="Расходы" title="Расходы"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8h12"/><path d="M6 12h12"/><path d="M6 16h8"/><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13A2.5 2.5 0 0 1 17.5 21h-11A2.5 2.5 0 0 1 4 18.5Z"/></svg><span class="nav-label">Расходы</span></button><button id="navReport" class="auth-only hidden" type="button" aria-label="Отчет" title="Отчет"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10"/><path d="M12 20V5"/><path d="M19 20v-7"/><path d="M3 20h18"/></svg><span class="nav-label">Отчет</span></button><button id="navWarehouse" class="admin-only hidden" type="button" aria-label="Склад" title="Склад"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10 12 5l8 5"/><path d="M5.5 10.5V20h13V10.5"/><path d="M9 20v-6h6v6"/></svg><span class="nav-label">Склад</span></button><button id="navCoolers" class="admin-only hidden" type="button" aria-label="Кулеры" title="Кулеры"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8"/><path d="M9 4v5l-2.5 4A5 5 0 0 0 11 20h2a5 5 0 0 0 4.5-7L15 9V4"/><path d="M9 13h6"/></svg><span class="nav-label">Кулеры</span></button><button id="navAudit" class="admin-only hidden" type="button" aria-label="Аудит" title="Аудит"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8"/><path d="M9 4v2a2 2 0 0 1-2 2H5v14h14V8h-2a2 2 0 0 1-2-2V4"/><path d="m8 15 2.5 2.5L16 12"/></svg><span class="nav-label">Аудит</span></button></div></footer>
 <script>
 let saleChannel = "pavilion";
 let unitPrice = 300;
@@ -1526,6 +1604,9 @@ let lastReportData = null;
 let reportEditMode = false;
 let adminReportPaymentFilter = "";
 let destinationSuggestTimer = null;
+let coolerRows = [];
+let coolersExpanded = false;
+let coolerFilterTimer = null;
 const $ = (id) => document.getElementById(id);
 function applyRoleState(){
   const loggedIn = appRole === "employee" || appRole === "admin";
@@ -1600,16 +1681,19 @@ function showPage(page){
   $("expensesPage").classList.toggle("active", page==="expenses");
   $("reportPage").classList.toggle("active", page==="report");
   $("warehousePage").classList.toggle("active", page==="warehouse" && appRole==="admin");
+  $("coolersPage").classList.toggle("active", page==="coolers" && appRole==="admin");
   $("auditPage").classList.toggle("active", page==="audit" && appRole==="admin");
   $("navHome").classList.toggle("active", page==="home");
   $("navWork").classList.toggle("active", page==="work");
   $("navExpenses").classList.toggle("active", page==="expenses");
   $("navReport").classList.toggle("active", page==="report");
   $("navWarehouse").classList.toggle("active", page==="warehouse");
+  $("navCoolers").classList.toggle("active", page==="coolers");
   $("navAudit").classList.toggle("active", page==="audit");
   if (page === "work" && appRole === "employee") loadWorkKpi();
   if (page === "home" && appRole === "admin") loadAssets();
   if (page === "warehouse" && appRole === "admin") loadWarehouseDebt();
+  if (page === "coolers" && appRole === "admin") loadCoolers();
   if (page === "report" && appRole === "employee" && (!currentShift || currentShift.closed_at) && lastClosedReport) {
     $("reportBox").hidden = false;
     $("reportBox").innerHTML = lastClosedReport;
@@ -1725,7 +1809,16 @@ $("navWork").onclick=()=>showPage("work");
 $("navExpenses").onclick=()=>showPage("expenses");
 $("navReport").onclick=()=>showPage("report");
 $("navWarehouse").onclick=()=>showPage("warehouse");
+$("navCoolers").onclick=()=>showPage("coolers");
 $("navAudit").onclick=()=>showPage("audit");
+$("coolerFilter").oninput=()=>{
+  clearTimeout(coolerFilterTimer);
+  coolerFilterTimer = setTimeout(()=>loadCoolers(), 180);
+};
+$("coolerToggle").onclick=()=>{
+  coolersExpanded = !coolersExpanded;
+  renderCoolerList();
+};
 $("showLoginButton").onclick=()=>{
   $("showLoginButton").classList.add("hidden");
   $("pinBlock").classList.remove("hidden");
@@ -2083,6 +2176,36 @@ async function loadWorkKpi(){
   if(!res.ok || !data.ok) return;
   $("miniBottles").textContent = Number(data.warehouseBottleTotal || 0).toLocaleString("ru-RU") + " шт.";
   $("miniEarning").textContent = money(data.warehouseServiceAmount);
+}
+async function loadCoolers(){
+  const params = new URLSearchParams();
+  if($("coolerFilter").value.trim()) params.set("filter", $("coolerFilter").value.trim());
+  const res = await fetch("/api/mobile/coolers?"+params.toString());
+  const data = await res.json();
+  if(!res.ok || !data.ok){
+    $("coolerMessage").className = "message err";
+    $("coolerMessage").textContent = data.error || "Не удалось загрузить кулеры";
+    return;
+  }
+  coolerRows = data.rows || [];
+  coolersExpanded = false;
+  $("coolerTotal").textContent = Number(data.total || 0).toLocaleString("ru-RU") + " шт.";
+  $("coolerMessage").className = "hint";
+  $("coolerMessage").textContent = coolerRows.length ? "Показаны точки, где последний статус кулера: наш." : "Наших кулеров по фильтру не найдено.";
+  renderCoolerList();
+}
+function renderCoolerList(){
+  const visible = coolersExpanded ? coolerRows : coolerRows.slice(0, 3);
+  $("coolerList").innerHTML = visible.length
+    ? visible.map((row)=>
+      '<div class="asset-card cooler-card">'+
+        '<div class="asset-icon">💧</div>'+
+        '<div><div class="asset-title">'+escapeHtml(row.channel === "warehouse" ? "Склад" : "Павильон")+'</div><div class="asset-value">'+escapeHtml(row.name)+'</div><div class="asset-sub">'+escapeHtml(row.employeeName || "Сотрудник")+(row.date ? " · "+escapeHtml(row.date) : "")+'</div></div>'+
+      '</div>'
+    ).join("")
+    : '<div class="report-line"><span>Список</span><b>нет данных</b></div>';
+  $("coolerToggle").classList.toggle("hidden", coolerRows.length <= 3);
+  $("coolerToggle").textContent = coolersExpanded ? "Свернуть" : "Развернуть еще " + Math.max(0, coolerRows.length - 3);
 }
 $("auditButton").onclick=async()=>{
   $("auditButton").disabled=true;$("auditButton").textContent="Считаем...";
