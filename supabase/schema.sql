@@ -219,7 +219,7 @@ alter table public.remaining_stock_reports enable row level security;
 alter table public.defective_write_offs enable row level security;
 alter table public.expenses enable row level security;
 alter table public.employee_shifts enable row level security;
-alter table public.warehouse_payments enable row level security;
+alter table public.warehouse_payments disable row level security;
 alter table public.pavilion_delivery_reports enable row level security;
 alter table public.coolers enable row level security;
 alter table public.daily_summaries enable row level security;

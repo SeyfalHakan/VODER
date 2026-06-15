@@ -1007,7 +1007,7 @@ async function buildAssets() {
     sales = salesResult.data ?? [];
     warehouse = [
       ...(arrivalsResult.data ?? []).map((row) => ({ entry_type: "arrival", quantity: row.quantity_received })),
-      ...(remainsResult.data ?? []).map((row) => ({ entry_type: "remaining", quantity: row.remaining_quantity })),
+      ...(remainsResult.data ?? []).map((row) => ({ entry_type: "return", quantity: row.remaining_quantity })),
       ...(defectsResult.data ?? []).map((row) => ({ entry_type: "writeoff", quantity: row.defective_quantity }))
     ];
   }
@@ -1018,12 +1018,7 @@ async function buildAssets() {
   const writtenOff = sum(warehouse.filter((row) => row.entry_type === "writeoff"), "quantity");
   const arrivals = sum(warehouse.filter((row) => row.entry_type === "arrival"), "quantity");
   const warehouseReturns = sum(warehouse.filter((row) => row.entry_type === "return"), "quantity");
-  const salesReturned = sum(sales, "quantity_returned");
-  const latestRemainingRows = warehouse.filter((row) => row.entry_type === "remaining");
-  const warehouseRemaining =
-    latestRemainingRows.length > 0
-      ? Number(latestRemainingRows.at(-1).quantity ?? 0)
-      : Math.max(0, arrivals + warehouseReturns + salesReturned - sum(sales, "quantity_sold") - writtenOff);
+  const warehouseRemaining = Math.max(0, arrivals - warehouseReturns - writtenOff);
   const totalTracked = warehouseRemaining + clientBottles + writtenOff;
 
   return {
@@ -1930,6 +1925,16 @@ $("auditButton").onclick=async()=>{
   $("auditButton").disabled=false;$("auditButton").textContent="Аудит за период";
 };
 document.addEventListener("click",(event)=>{
+  const toggle = event.target.closest(".client-toggle");
+  if(toggle){
+    const wrapper = toggle.closest(".client-list");
+    const extras = Array.from(wrapper?.querySelectorAll(".client-extra") || []);
+    const expanded = toggle.dataset.expanded === "1";
+    extras.forEach((row)=>row.classList.toggle("hidden", expanded));
+    toggle.dataset.expanded = expanded ? "0" : "1";
+    toggle.textContent = expanded ? "Развернуть еще "+extras.length : "Свернуть";
+    return;
+  }
   const button = event.target.closest(".delete-sale");
   if(!button) return;
   const row = button.closest("[data-sale-id]");
@@ -2068,10 +2073,12 @@ function renderEmployeeReport(data, prefix, editable=false){
 function renderClientTable(data){
   const rows = data.clientRows || [];
   if(!rows.length) return '<div class="report-line"><span>Клиенты</span><b>нет данных</b></div>';
-  return '<div class="report-table client-table">'+
+  const hiddenCount = Math.max(0, rows.length - 5);
+  return '<div class="client-list">'+
+  '<div class="report-table client-table">'+
     '<div class="report-row head"><span>Клиент</span><span>Метод</span><span>Продал</span><span>Забрал</span><span>Оплатил</span><span>Спис.</span><span>Кулер</span></div>'+
-    rows.map((row)=>
-      '<div class="report-row">'+
+    rows.map((row,index)=>
+      '<div class="report-row '+(index >= 5 ? 'client-extra hidden' : '')+'">'+
         '<b>'+escapeHtml(row.name)+'</b>'+
         '<span class="method">'+paymentLabel(row.paymentType)+'</span>'+
         '<b>'+Number(row.sold||0)+'</b>'+
@@ -2081,6 +2088,8 @@ function renderClientTable(data){
         '<span>'+coolerLabel(row.coolerStatus)+'</span>'+
       '</div>'
     ).join("")+
+  '</div>'+
+  (hiddenCount ? '<button class="mini-btn client-toggle" type="button" data-expanded="0">Развернуть еще '+hiddenCount+'</button>' : '')+
   '</div>';
 }
 function renderExpenseTable(data){
