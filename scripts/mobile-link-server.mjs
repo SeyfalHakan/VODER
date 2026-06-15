@@ -214,7 +214,8 @@ const server = createServer(async (request, response) => {
         url.searchParams.get("role"),
         url.searchParams.get("employeeName"),
         url.searchParams.get("shiftId"),
-        url.searchParams.get("filter")
+        url.searchParams.get("filter"),
+        url.searchParams.get("payment")
       );
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
     } catch (error) {
@@ -236,6 +237,17 @@ const server = createServer(async (request, response) => {
   if (request.method === "GET" && url.pathname === "/api/mobile/assets") {
     try {
       const result = await buildAssets();
+      send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
+    } catch (error) {
+      send(response, 500, "application/json; charset=utf-8", JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/mobile/reset-data") {
+    try {
+      const body = JSON.parse(await readBody(request));
+      const result = await resetUserData(body.password);
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
     } catch (error) {
       send(response, 500, "application/json; charset=utf-8", JSON.stringify({ error: error.message }));
@@ -452,6 +464,38 @@ async function deleteSale(id) {
   }
   const { error } = await supabase.from("shipments").delete().eq("id", id);
   if (error) return { status: 500, body: { error: error.message } };
+  return { status: 200, body: { ok: true, demo: false } };
+}
+
+async function resetUserData(passwordInput) {
+  const password = String(passwordInput ?? "").trim();
+  if (password !== "6969") return { status: 401, body: { error: "Неверный пароль" } };
+
+  memorySales.splice(0);
+  memoryExpenses.splice(0);
+  memoryShifts.splice(0);
+  memoryWarehouse.splice(0);
+  memoryWarehousePayments.splice(0);
+
+  const supabase = await createSupabaseAdminClient();
+  if (!supabase) return { status: 200, body: { ok: true, demo: true } };
+
+  const tables = [
+    "shipments",
+    "expenses",
+    "stock_arrivals",
+    "remaining_stock_reports",
+    "defective_write_offs",
+    "warehouse_payments",
+    "employee_shifts",
+    "pavilion_delivery_reports",
+    "coolers",
+    "daily_summaries"
+  ];
+  for (const table of tables) {
+    const { error } = await supabase.from(table).delete().not("id", "is", null);
+    if (error) return { status: 500, body: { error: `${table}: ${error.message}` } };
+  }
   return { status: 200, body: { ok: true, demo: false } };
 }
 
@@ -828,12 +872,13 @@ function summarizeWarehouseDebt(arrivals, payments) {
   };
 }
 
-async function buildReport(fromInput, toInput, role = "employee", employeeNameInput = "", shiftIdInput = "", filterInput = "") {
+async function buildReport(fromInput, toInput, role = "employee", employeeNameInput = "", shiftIdInput = "", filterInput = "", paymentFilterInput = "") {
   const from = normalizeDate(fromInput) ?? moscowDate();
   const to = normalizeDate(toInput) ?? from;
   const employeeName = employeeDisplayName(employeeNameInput);
   const shiftId = String(shiftIdInput ?? "").trim();
   const filter = String(filterInput ?? "").trim().toLowerCase();
+  const paymentFilter = role === "admin" && ["cash", "transfer"].includes(String(paymentFilterInput ?? "")) ? String(paymentFilterInput) : "";
   if (from > to) return { status: 400, body: { error: "Дата начала не может быть позже даты конца" } };
 
   const supabase = await createSupabaseAdminClient();
@@ -877,6 +922,10 @@ async function buildReport(fromInput, toInput, role = "employee", employeeNameIn
     writeoffs = writeoffs.filter((row) => String(row.warehouse_name ?? "").toLowerCase().includes(filter));
   }
 
+  if (paymentFilter) {
+    sales = sales.filter((row) => paymentKind(row) === paymentFilter);
+  }
+
   const summary = summarizeOperations(sales, expenses);
   const employeeBreakdown = role === "admin" ? buildEmployeeBreakdown(sales, expenses) : [];
   const warehouseDebt = summarizeWarehouseDebt(arrivals, warehousePayments);
@@ -891,6 +940,7 @@ async function buildReport(fromInput, toInput, role = "employee", employeeNameIn
       role,
       employeeBreakdown,
       filter: filterInput,
+      paymentFilter,
       clientRows,
       salesRows: sales.map(publicSaleRow),
       warehouseDebt,
@@ -1248,7 +1298,7 @@ function mobileHtml() {
     .footer{height:0!important;min-height:0!important;background:none!important;background-color:transparent!important;box-shadow:none!important;border:0!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;overflow:visible!important}.footer:before,.footer:after{display:none!important}.footer-inner{background:linear-gradient(135deg,rgba(43,108,255,.38),rgba(146,196,255,.18) 58%,rgba(42,23,96,.34))!important;border:1px solid rgba(169,207,255,.28)!important;box-shadow:0 18px 46px rgba(18,50,145,.36),0 0 34px rgba(87,149,255,.20),inset 0 1px 0 rgba(255,255,255,.22),inset 0 -1px 0 rgba(25,55,160,.22)!important;backdrop-filter:blur(24px) saturate(145%)!important;-webkit-backdrop-filter:blur(24px) saturate(145%)!important}.footer button{color:rgba(226,238,255,.72)!important}.footer button.active{background:linear-gradient(135deg,#2d7cff 0%,#6ba9ff 58%,#b8d7ff 130%)!important;color:white!important;box-shadow:0 12px 30px rgba(70,142,255,.48),inset 0 1px 0 rgba(255,255,255,.34)!important}
     .boot-loader{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:radial-gradient(circle at 50% 78%,rgba(74,0,216,.62),transparent 36%),linear-gradient(180deg,#05010d,#180044 120%);transition:opacity .28s ease,visibility .28s ease}.boot-loader.hidden{opacity:0;visibility:hidden;pointer-events:none}.boot-loader-card{display:grid;place-items:center;gap:16px;color:white}.boot-loader img{width:92px;height:92px;border-radius:26px;box-shadow:0 24px 70px rgba(50,0,150,.46)}.loader-ring{width:42px;height:42px;border-radius:50%;border:3px solid rgba(255,255,255,.18);border-top-color:#a1bdff;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
     .report-tools{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end}.report-tools label{min-width:0}.mini-btn{height:44px;border:1px solid rgba(216,225,255,.18);border-radius:999px;background:rgba(255,255,255,.08);color:#fff;font-size:12px;font-weight:900;padding:0 14px}.report-table{display:grid;gap:7px;overflow-x:auto;padding-bottom:2px}.report-row{display:grid;grid-template-columns:1.3fr .8fr .7fr .7fr .7fr .9fr;gap:6px;align-items:center;min-width:390px;padding:8px;border:1px solid rgba(216,225,255,.12);border-radius:14px;background:rgba(255,255,255,.055);font-size:11px}.report-row.head{color:#a1bdff;font-weight:900;background:rgba(161,189,255,.08)}.report-row b{font-size:12px}.report-row span,.report-row b{min-width:0;overflow:hidden;text-overflow:ellipsis}.client-table .report-row{grid-template-columns:1.25fr .55fr .55fr .55fr .9fr .55fr .65fr;min-width:470px}.client-table .report-row b.paid{color:#dbe8ff;font-size:12px}.client-table .method{display:inline-grid;place-items:center;min-width:42px;height:24px;border-radius:999px;background:rgba(161,189,255,.12);border:1px solid rgba(161,189,255,.18);font-weight:900;color:#fff}.report-row input{height:34px!important;font-size:13px!important;border-radius:12px!important;padding:0 8px}.report-row .danger-small{height:34px;border:0;border-radius:12px;background:rgba(255,80,106,.18);color:#ffb3bf;font-weight:900}.profit-cards{display:grid;grid-template-columns:1fr 1fr;gap:8px}.profit-card{padding:10px;border-radius:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10)}.profit-card span{display:block;color:var(--muted);font-size:11px;font-weight:800}.profit-card b{display:block;margin-top:4px;font-size:16px}.warehouse-debt{display:grid;gap:9px;padding:10px;border-radius:20px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10)}.paid-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-    .client-list{display:grid;gap:8px;min-width:0;max-width:100%}.client-table{min-width:0;max-width:100%;overflow:visible!important}.client-table .report-row{min-width:0!important;width:100%;grid-template-columns:minmax(0,1.1fr) auto auto;grid-template-areas:"name method cooler" "sold returned paid" "writeoff writeoff writeoff";gap:7px 8px;padding:10px 11px}.client-table .report-row.head{display:none}.client-table .report-row>*{white-space:normal!important}.client-table .report-row>b:first-child{grid-area:name;font-size:14px;white-space:nowrap!important;overflow:hidden;text-overflow:ellipsis}.client-table .method{grid-area:method;justify-self:end;min-width:48px;height:25px}.client-table .report-row>*:nth-child(3){grid-area:sold}.client-table .report-row>*:nth-child(4){grid-area:returned}.client-table .report-row>*:nth-child(5){grid-area:paid;justify-self:end;text-align:right}.client-table .report-row>*:nth-child(6){grid-area:writeoff}.client-table .report-row>*:nth-child(7){grid-area:cooler;justify-self:end;text-align:right}.client-table .report-row:not(.head)>*:nth-child(n+3)::before{display:block;color:var(--muted);font-size:9px;font-weight:800;line-height:1.1;margin-bottom:2px}.client-table .report-row:not(.head)>*:nth-child(3)::before{content:"Продал"}.client-table .report-row:not(.head)>*:nth-child(4)::before{content:"Забрал"}.client-table .report-row:not(.head)>*:nth-child(5)::before{content:"Оплатил"}.client-table .report-row:not(.head)>*:nth-child(6)::before{content:"Списания"}.client-toggle{justify-self:start;margin-top:2px}.expense-report-table .report-row{min-width:0!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}.expense-report-table .report-row span:nth-last-child(-n+2),.expense-report-table .report-row b:nth-last-child(-n+2){display:none}.expense-report-table .report-row span,.expense-report-table .report-row b{font-size:10px!important;white-space:nowrap!important;text-overflow:ellipsis}.expense-report-table .report-row b{font-size:11px!important}.report-box{max-width:100%;overflow:hidden}#reportPage .panel,#auditPage .panel{padding-bottom:calc(var(--content-bottom) + 10px)!important}
+    .client-list{display:grid;gap:8px;min-width:0;max-width:100%}.client-table{min-width:0;max-width:100%;overflow:visible!important}.client-table .report-row{min-width:0!important;width:100%;grid-template-columns:minmax(0,1.1fr) auto auto;grid-template-areas:"name method cooler" "sold returned paid" "writeoff writeoff writeoff";gap:7px 8px;padding:10px 11px}.client-table .report-row.head{display:none}.client-table .report-row>*{white-space:normal!important}.client-table .report-row>b:first-child{grid-area:name;font-size:14px;white-space:nowrap!important;overflow:hidden;text-overflow:ellipsis}.client-table .method{grid-area:method;justify-self:end;min-width:48px;height:25px}.client-table .report-row>*:nth-child(3){grid-area:sold}.client-table .report-row>*:nth-child(4){grid-area:returned}.client-table .report-row>*:nth-child(5){grid-area:paid;justify-self:end;text-align:right}.client-table .report-row>*:nth-child(6){grid-area:writeoff}.client-table .report-row>*:nth-child(7){grid-area:cooler;justify-self:end;text-align:right}.client-table .report-row:not(.head)>*:nth-child(n+3)::before{display:block;color:var(--muted);font-size:9px;font-weight:800;line-height:1.1;margin-bottom:2px}.client-table .report-row:not(.head)>*:nth-child(3)::before{content:"Продал"}.client-table .report-row:not(.head)>*:nth-child(4)::before{content:"Забрал"}.client-table .report-row:not(.head)>*:nth-child(5)::before{content:"Оплатил"}.client-table .report-row:not(.head)>*:nth-child(6)::before{content:"Списания"}.client-toggle{justify-self:start;margin-top:2px}.expense-report-table .report-row{min-width:0!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}.expense-report-table .report-row span:nth-last-child(-n+2),.expense-report-table .report-row b:nth-last-child(-n+2){display:none}.expense-report-table .report-row span,.expense-report-table .report-row b{font-size:10px!important;white-space:nowrap!important;text-overflow:ellipsis}.expense-report-table .report-row b{font-size:11px!important}.report-payments{display:grid;grid-template-columns:1fr 1fr;gap:8px}.report-payments button,.reset-btn{height:42px;border:1px solid rgba(216,225,255,.18);border-radius:999px;background:rgba(255,255,255,.08);color:#dbe8ff;font-size:13px;font-weight:900}.report-payments button.active{background:linear-gradient(135deg,#320096,#849bff);color:white;box-shadow:0 12px 30px rgba(70,142,255,.30)}.reset-btn{margin-top:auto;background:rgba(255,80,106,.15);border-color:rgba(255,80,106,.30);color:#ffb3bf}.reset-btn:disabled{opacity:.55}.report-box{max-width:100%;overflow:hidden}#reportPage .panel,#auditPage .panel{padding-bottom:calc(var(--content-bottom) + 10px)!important}
   </style>
 </head>
 <body>
@@ -1289,6 +1339,8 @@ function mobileHtml() {
         <div id="closedSummary" class="closed-summary" hidden></div>
         <button id="openShiftButton" class="submit" type="button">Открыть смену</button>
         <button id="logoutButton" class="submit logout-btn" type="button">Выход</button>
+        <button id="resetDataButton" class="reset-btn admin-only hidden" type="button">RESET</button>
+        <p id="resetDataMessage" class="hint admin-only hidden"></p>
         <p id="openShiftMessage" class="hint">После открытия смены можно работать.</p>
       </div>
     </div>
@@ -1336,6 +1388,7 @@ function mobileHtml() {
       <label id="reportFromWrap"><span>Дата с</span><input id="reportFrom" type="date" /></label>
       <label id="reportToWrap"><span>Дата по</span><input id="reportTo" type="date" /></label>
       <div class="report-tools"><label id="reportFilterWrap"><span>Фильтр павильон/склад</span><input id="reportFilter" type="text" inputmode="text" placeholder="Например: 12 или Основной" /></label><button id="reportEditButton" class="mini-btn hidden" type="button">ПРАВИТЬ</button></div>
+      <div id="reportPaymentFilter" class="report-payments admin-only hidden"><button id="reportCashFilter" type="button">НАЛ</button><button id="reportTransferFilter" type="button">БНАЛ</button></div>
       <p id="employeeShiftInfo" class="shift-pill hidden"></p>
       <button id="reportButton" class="submit" type="button">РАССЧИТАТЬ</button>
       <div id="reportBox" class="report-box" hidden></div>
@@ -1405,6 +1458,7 @@ let currentShift = JSON.parse(localStorage.getItem("waterOpsShift") || "null");
 let lastClosedReport = localStorage.getItem("waterOpsLastClosedReport") || "";
 let lastReportData = null;
 let reportEditMode = false;
+let adminReportPaymentFilter = "";
 const $ = (id) => document.getElementById(id);
 function applyRoleState(){
   const loggedIn = appRole === "employee" || appRole === "admin";
@@ -1505,6 +1559,8 @@ function render(){
   $("price300").classList.toggle("active", unitPrice===300);
   $("cash").classList.toggle("active", paymentType==="cash");
   $("transfer").classList.toggle("active", paymentType==="transfer");
+  $("reportCashFilter").classList.toggle("active", adminReportPaymentFilter === "cash");
+  $("reportTransferFilter").classList.toggle("active", adminReportPaymentFilter === "transfer");
   $("coolerOur").classList.toggle("active", coolerStatus==="our");
   $("coolerNot").classList.toggle("active", coolerStatus==="not_our");
   $("destinationLabel").textContent = saleChannel==="warehouse" ? "Название склада" : "Номер павильона";
@@ -1564,6 +1620,8 @@ $("price250").onclick=()=>{unitPrice=250;render()};
 $("price300").onclick=()=>{unitPrice=300;render()};
 $("cash").onclick=()=>{paymentType="cash";render()};
 $("transfer").onclick=()=>{paymentType="transfer";render()};
+$("reportCashFilter").onclick=()=>{adminReportPaymentFilter=adminReportPaymentFilter==="cash"?"":"cash";render()};
+$("reportTransferFilter").onclick=()=>{adminReportPaymentFilter=adminReportPaymentFilter==="transfer"?"":"transfer";render()};
 $("coolerOur").onclick=()=>{coolerStatus="our";render()};
 $("coolerNot").onclick=()=>{coolerStatus="not_our";render()};
 $("sold").oninput=render;
@@ -1633,6 +1691,46 @@ $("logoutButton").onclick=()=>{
   $("openShiftMessage").textContent="Вы вышли. Для работы войдите снова.";
   showPage("home");
   applyShiftState();
+};
+$("resetDataButton").onclick=async()=>{
+  if(appRole !== "admin") return;
+  if(!confirm("Удалить все внесенные данные: продажи, отчеты, приходы, расходы, смены, списания и оплаты? Пароли и функции останутся.")) return;
+  const password = prompt("Введите пароль администратора для RESET");
+  if(password === null) return;
+  $("resetDataButton").disabled = true;
+  $("resetDataButton").textContent = "Очищаем...";
+  $("resetDataMessage").className = "hint admin-only";
+  $("resetDataMessage").textContent = "";
+  const res = await fetch("/api/mobile/reset-data", {
+    method: "POST",
+    headers: {"content-type":"application/json"},
+    body: JSON.stringify({ password })
+  });
+  const data = await res.json();
+  if(res.ok){
+    currentShift = null;
+    lastClosedReport = "";
+    lastReportData = null;
+    reportEditMode = false;
+    adminReportPaymentFilter = "";
+    localStorage.removeItem("waterOpsShift");
+    localStorage.removeItem("waterOpsLastClosedReport");
+    $("reportBox").hidden = true;
+    $("reportBox").innerHTML = "";
+    $("auditBox").hidden = true;
+    $("auditBox").innerHTML = "";
+    $("warehouseDebtBox").hidden = true;
+    $("warehousePaymentForm").hidden = true;
+    $("resetDataMessage").className = "message ok admin-only";
+    $("resetDataMessage").textContent = "Данные очищены.";
+    await loadAssets();
+    render();
+  } else {
+    $("resetDataMessage").className = "message err admin-only";
+    $("resetDataMessage").textContent = data.error || "Не удалось очистить данные";
+  }
+  $("resetDataButton").disabled = false;
+  $("resetDataButton").textContent = "RESET";
 };
 $("openShiftButton").onclick=async()=>{
   $("openShiftButton").disabled=true;$("openShiftButton").textContent="Открываем...";
@@ -1853,6 +1951,7 @@ async function calculateReport(){
   const to=appRole==="employee" ? currentShift.opened_date : ($("reportTo").value || from);
   const params = new URLSearchParams({from, to, role: appRole});
   if(appRole==="admin" && $("reportFilter").value.trim()) params.set("filter", $("reportFilter").value.trim());
+  if(appRole==="admin" && adminReportPaymentFilter) params.set("payment", adminReportPaymentFilter);
   if(appRole==="employee"){
     params.set("employeeName", appEmployee);
     params.set("shiftId", currentShift.id);
@@ -2035,6 +2134,7 @@ function currentReportPrefix(data = lastReportData){
       '<div class="report-line"><span>Дата смены</span><b>'+(currentShift ? currentShift.opened_date : data?.period?.from || "")+'</b></div>'+
       '<div class="report-line"><span>Открыта</span><b>'+(currentShift ? currentShift.opened_at : "")+'</b></div>'
     : '<div class="report-line"><span>Период</span><b>'+data.period.from+' — '+data.period.to+'</b></div>'+
+      (data.paymentFilter ? '<div class="report-line"><span>Оплата</span><b>'+paymentLabel(data.paymentFilter)+'</b></div>' : '<div class="report-line"><span>Оплата</span><b>Общий</b></div>')+
       (data.filter ? '<div class="report-line"><span>Фильтр</span><b>'+escapeHtml(data.filter)+'</b></div>' : '');
 }
 function renderEditableSales(data){
