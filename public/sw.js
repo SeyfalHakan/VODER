@@ -1,4 +1,4 @@
-const CACHE_NAME = "voder-pwa-v2";
+const CACHE_NAME = "voder-pwa-v3";
 const APP_SHELL = [
   "/employee",
   "/manifest.json",
@@ -26,6 +26,8 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  const url = new URL(event.request.url);
+  if (url.pathname.startsWith("/api/")) return;
   event.respondWith(
     fetch(event.request)
       .then((response) => {

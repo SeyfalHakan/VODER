@@ -13,6 +13,7 @@ const memoryExpenses = [];
 const memoryShifts = [];
 const memoryWarehouse = [];
 const memoryWarehousePayments = [];
+let supabaseAdminClientPromise = null;
 const fixedAuditMonthlyExpenses = [
   { name: "Аренда", amount: 105000 },
   { name: "Внутренний сервис", amount: 45000 }
@@ -440,9 +441,9 @@ async function saveSale(body) {
   }
 
   const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
-  const { data, error } = await supabase.from("shipments").insert(cleanPayload).select("*").single();
+  const { error } = await supabase.from("shipments").insert(cleanPayload);
   if (error) return { status: 500, body: { error: error.message } };
-  return { status: 200, body: { ok: true, demo: false, payload: data ?? payload } };
+  return { status: 200, body: { ok: true, demo: false, payload: cleanPayload } };
 }
 
 async function updateSale(id, body) {
@@ -470,9 +471,9 @@ async function updateSale(id, body) {
     return { status: 200, body: { ok: true, demo: true, payload: row } };
   }
 
-  const { data, error } = await supabase.from("shipments").update(patch).eq("id", id).select("*").single();
+  const { error } = await supabase.from("shipments").update(patch).eq("id", id);
   if (error) return { status: 500, body: { error: error.message } };
-  return { status: 200, body: { ok: true, demo: false, payload: data } };
+  return { status: 200, body: { ok: true, demo: false, payload: { id, ...patch } } };
 }
 
 async function deleteSale(id) {
@@ -665,9 +666,9 @@ async function saveWarehousePayment(body) {
     memoryWarehousePayments.push(payload);
     return { status: 200, body: { ok: true, demo: true, payload } };
   }
-  const { data, error } = await supabase.from("warehouse_payments").insert(payload).select("*").single();
+  const { error } = await supabase.from("warehouse_payments").insert(payload);
   if (error) return { status: 500, body: { error: error.message } };
-  return { status: 200, body: { ok: true, demo: false, payload: data ?? payload } };
+  return { status: 200, body: { ok: true, demo: false, payload } };
 }
 
 async function buildWarehouseDebt(fromInput, toInput) {
@@ -925,12 +926,14 @@ async function buildReport(fromInput, toInput, role = "employee", employeeNameIn
   let warehousePayments = memoryWarehousePayments.filter((row) => inPeriod(row.report_date, from, to));
 
   if (supabase) {
+    const saleFields = "id,report_date,created_at,employee_name,sale_channel,destination_name,warehouse_name,pavilion_code,product_name,quantity_delivered,quantity_returned,quantity_sold,unit_price,cash_amount,comments,source";
+    const expenseFields = "id,expense_date,employee_name,category,amount,payment_type,comment,source";
     const [salesResult, expensesResult, arrivalsResult, writeoffsResult, paymentsResult] = await Promise.all([
-      supabase.from("shipments").select("*").gte("report_date", from).lte("report_date", to),
-      supabase.from("expenses").select("*").gte("expense_date", from).lte("expense_date", to),
-      supabase.from("stock_arrivals").select("*").gte("report_date", from).lte("report_date", to),
-      supabase.from("defective_write_offs").select("*").gte("report_date", from).lte("report_date", to),
-      supabase.from("warehouse_payments").select("*").gte("report_date", from).lte("report_date", to)
+      supabase.from("shipments").select(saleFields).gte("report_date", from).lte("report_date", to).order("created_at", { ascending: false }).limit(2000),
+      supabase.from("expenses").select(expenseFields).gte("expense_date", from).lte("expense_date", to).limit(1000),
+      supabase.from("stock_arrivals").select("id,report_date,warehouse_name,product_name,quantity_received,purchase_amount").gte("report_date", from).lte("report_date", to).limit(1000),
+      supabase.from("defective_write_offs").select("id,report_date,warehouse_name,defective_quantity,quantity,comment,reason").gte("report_date", from).lte("report_date", to).limit(1000),
+      supabase.from("warehouse_payments").select("id,report_date,cash_amount,transfer_amount").gte("report_date", from).lte("report_date", to).limit(1000)
     ]);
     if (salesResult.error) return { status: 500, body: { error: salesResult.error.message } };
     if (expensesResult.error) return { status: 500, body: { error: expensesResult.error.message } };
@@ -1241,10 +1244,13 @@ async function buildCoolerRegistry(filterInput = "") {
 async function createSupabaseAdminClient() {
   const { url, key } = getSupabaseEnv();
   if (!url || !key) return null;
-  const { createClient } = await import("@supabase/supabase-js");
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false }
-  });
+  supabaseAdminClientPromise ??= import("@supabase/supabase-js").then(({ createClient }) =>
+    createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { "x-application-name": "voder-mobile" } }
+    })
+  );
+  return supabaseAdminClientPromise;
 }
 
 function getSupabaseEnv() {
@@ -1642,7 +1648,7 @@ let coolerStatus = "our";
 let appRole = localStorage.getItem("waterOpsRole") || "";
 let appEmployee = localStorage.getItem("waterOpsEmployee") || "";
 let employeeKind = localStorage.getItem("waterOpsEmployeeKind") || "pavilion";
-let currentShift = JSON.parse(localStorage.getItem("waterOpsShift") || "null");
+let currentShift = readStoredShift();
 let lastClosedReport = localStorage.getItem("waterOpsLastClosedReport") || "";
 let lastReportData = null;
 let reportEditMode = false;
@@ -1653,6 +1659,43 @@ let coolerRows = [];
 let coolersExpanded = false;
 let coolerFilterTimer = null;
 const $ = (id) => document.getElementById(id);
+function readStoredShift(){
+  try {
+    const raw = localStorage.getItem("waterOpsShift");
+    return raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    localStorage.removeItem("waterOpsShift");
+    return null;
+  }
+}
+function clearBootLoader(){
+  $("bootLoader")?.classList.add("hidden");
+}
+function showAppError(error){
+  clearBootLoader();
+  console.error("[voder-ui]", error);
+  const activeBox = document.querySelector(".page.active .message, .page.active .hint") || $("loginMessage");
+  if(activeBox){
+    activeBox.hidden = false;
+    activeBox.className = "message err";
+    activeBox.textContent = "Ошибка загрузки. Обновите страницу или попробуйте еще раз.";
+  }
+}
+window.addEventListener("error", (event)=>showAppError(event.error || event.message));
+window.addEventListener("unhandledrejection", (event)=>showAppError(event.reason || "Ошибка сети"));
+async function requestJson(url, options = {}, timeoutMs = 12000){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {...options, signal: controller.signal});
+    const data = await res.json().catch(()=>({ error: "Пустой ответ сервера" }));
+    return { res, data };
+  } catch (error) {
+    return { res: { ok: false }, data: { error: error?.name === "AbortError" ? "Сервер долго отвечает. Проверьте интернет и попробуйте еще раз." : "Нет связи с сервером" } };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 function applyRoleState(){
   const loggedIn = appRole === "employee" || appRole === "admin";
   const hasOpenShift = appRole === "employee" && currentShift && !currentShift.closed_at;
@@ -1892,8 +1935,7 @@ document.querySelectorAll(".pin").forEach((input, index, inputs)=>{
 $("loginButton").onclick=async()=>{
   const password = Array.from(document.querySelectorAll(".pin")).map((input)=>input.value).join("");
   $("loginButton").disabled=true;
-  const response = await fetch("/api/mobile/login",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({password})});
-  const data = await response.json();
+  const { res: response, data } = await requestJson("/api/mobile/login",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({password})});
   if(!response.ok){
     $("loginMessage").hidden=false;
     $("loginMessage").className="message err";
@@ -1976,8 +2018,7 @@ $("resetDataButton").onclick=async()=>{
 };
 $("openShiftButton").onclick=async()=>{
   $("openShiftButton").disabled=true;$("openShiftButton").textContent="Открываем...";
-  const res=await fetch("/api/mobile/shift/open",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({employeeName:appEmployee})});
-  const data=await res.json();
+  const { res, data } = await requestJson("/api/mobile/shift/open",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({employeeName:appEmployee})});
   if(res.ok){
     currentShift=data.shift;
     localStorage.setItem("waterOpsShift", JSON.stringify(currentShift));
@@ -1990,7 +2031,6 @@ $("openShiftButton").onclick=async()=>{
     $("openShiftMessage").textContent="Смена открыта: "+currentShift.opened_at;
     applyShiftState();
     showPage("work");
-    calculateReport();
   } else {
     $("openShiftMessage").className="message err";
     $("openShiftMessage").textContent=data.error;
@@ -2072,23 +2112,29 @@ $("form").onsubmit=async(e)=>{
     return;
   }
   $("submit").disabled=true;$("submit").textContent="Сохраняем...";
-  const res=await fetch("/api/mobile/sales",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({
-    saleChannel,
-    destinationName:saleChannel==="warehouse"?$("destination").value:undefined,
-    pavilionCode:saleChannel==="pavilion"?$("destination").value:undefined,
-    unitPrice,
-    paymentType,
-    coolerStatus,
-    employeeName: appEmployee,
-    shiftId: currentShift ? currentShift.id : "",
-    quantityDelivered:Number($("sold").value),
-    quantityReturned:Number($("returned").value||0)
-  })});
-  const data=await res.json();
-  const message=$("message");message.hidden=false;message.className=res.ok?"message ok":"message err";
-  message.textContent=res.ok?("Сохранено: "+$("destination").value+", "+$("sold").value+" шт., сумма "+$("total").textContent):data.error;
-  if(res.ok){$("destination").value="";$("sold").value="";$("returned").value="";render();loadWorkKpi()}
-  $("submit").disabled=false;$("submit").textContent="Сохранить продажу";
+  const message=$("message");
+  try {
+    const { res, data } = await requestJson("/api/mobile/sales",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({
+      saleChannel,
+      destinationName:saleChannel==="warehouse"?$("destination").value:undefined,
+      pavilionCode:saleChannel==="pavilion"?$("destination").value:undefined,
+      unitPrice,
+      paymentType,
+      coolerStatus,
+      employeeName: appEmployee,
+      shiftId: currentShift ? currentShift.id : "",
+      quantityDelivered:Number($("sold").value),
+      quantityReturned:Number($("returned").value||0)
+    })});
+    message.hidden=false;message.className=res.ok?"message ok":"message err";
+    message.textContent=res.ok?("Сохранено: "+$("destination").value+", "+$("sold").value+" шт., сумма "+$("total").textContent):(data.error || "Не удалось сохранить");
+    if(res.ok){
+      $("destination").value="";$("sold").value="";$("returned").value="";render();
+      if(employeeKind === "warehouse" || saleChannel === "warehouse") loadWorkKpi();
+    }
+  } finally {
+    $("submit").disabled=false;$("submit").textContent="Сохранить продажу";
+  }
 };
 $("expenseForm").onsubmit=async(e)=>{
   e.preventDefault();
@@ -2109,23 +2155,26 @@ $("expenseForm").onsubmit=async(e)=>{
     return;
   }
   $("expenseSubmit").disabled=true;$("expenseSubmit").textContent="Сохраняем...";
-  const results = await Promise.all(entries.map((entry)=>fetch("/api/mobile/expenses",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({
-    ...entry,
-    employeeName: appEmployee,
-    shiftId: currentShift ? currentShift.id : ""
-  })}).then(async(res)=>({res,data:await res.json()}))));
-  const failed = results.find((item)=>!item.res.ok);
-  message.className=failed?"message err":"message ok";
-  message.textContent=failed?(failed.data.error||"Не удалось сохранить расход"):("Расходы сохранены: "+money(entries.reduce((sum,item)=>sum+item.amount,0)));
-  if(!failed){
-    selectedExpenses.clear();
-    $("expenseSalaryAmount").value="";
-    $("expenseOtherAmount").value="";
-    $("expenseComment").value="";
-    renderExpense();
-    loadWorkKpi();
+  try {
+    const results = await Promise.all(entries.map((entry)=>requestJson("/api/mobile/expenses",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({
+      ...entry,
+      employeeName: appEmployee,
+      shiftId: currentShift ? currentShift.id : ""
+    })})));
+    const failed = results.find((item)=>!item.res.ok);
+    message.className=failed?"message err":"message ok";
+    message.textContent=failed?(failed.data.error||"Не удалось сохранить расход"):("Расходы сохранены: "+money(entries.reduce((sum,item)=>sum+item.amount,0)));
+    if(!failed){
+      selectedExpenses.clear();
+      $("expenseSalaryAmount").value="";
+      $("expenseOtherAmount").value="";
+      $("expenseComment").value="";
+      renderExpense();
+      if(employeeKind === "warehouse") loadWorkKpi();
+    }
+  } finally {
+    $("expenseSubmit").disabled=false;$("expenseSubmit").textContent="Сохранить расход";
   }
-  $("expenseSubmit").disabled=false;$("expenseSubmit").textContent="Сохранить расход";
 };
 $("warehouseForm").onsubmit=async(e)=>{
   e.preventDefault();
@@ -2147,35 +2196,41 @@ $("warehouseForm").onsubmit=async(e)=>{
     $("warehouseSubmit").disabled=false;$("warehouseSubmit").textContent="Сохранить склад";
     return;
   }
-  const results = await Promise.all(entries.map((entry)=>fetch("/api/mobile/warehouse",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(entry)}).then(async(res)=>({res,data:await res.json()}))));
-  const failed = results.find((item)=>!item.res.ok);
-  message.className=failed?"message err":"message ok";
-  message.textContent=failed?(failed.data.error||"Не удалось сохранить склад"):("Склад сохранен: "+entries.map((item)=>warehouseTypeName(item.entryType)+" "+item.quantity+" шт.").join(", "));
-  if(!failed){
-    $("warehouseArrivalQuantity").value="";
-    $("warehouseReturnQuantity").value="";
-    $("warehouseWriteoffQuantity").value="";
-    selectedWarehouseEntries.clear();
-    renderWarehouse();
+  try {
+    const results = await Promise.all(entries.map((entry)=>requestJson("/api/mobile/warehouse",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(entry)})));
+    const failed = results.find((item)=>!item.res.ok);
+    message.className=failed?"message err":"message ok";
+    message.textContent=failed?(failed.data.error||"Не удалось сохранить склад"):("Склад сохранен: "+entries.map((item)=>warehouseTypeName(item.entryType)+" "+item.quantity+" шт.").join(", "));
+    if(!failed){
+      $("warehouseArrivalQuantity").value="";
+      $("warehouseReturnQuantity").value="";
+      $("warehouseWriteoffQuantity").value="";
+      selectedWarehouseEntries.clear();
+      renderWarehouse();
+    }
+    if(!failed && appRole==="admin"){
+      loadAssets();
+      loadWarehouseDebt();
+    }
+  } finally {
+    $("warehouseSubmit").disabled=false;$("warehouseSubmit").textContent="Сохранить склад";
   }
-  if(!failed && appRole==="admin"){
-    await loadAssets();
-    await loadWarehouseDebt();
-  }
-  $("warehouseSubmit").disabled=false;$("warehouseSubmit").textContent="Сохранить склад";
 };
 $("warehousePaymentForm").onsubmit=async(e)=>{
   e.preventDefault();
   $("warehousePaymentSubmit").disabled=true;$("warehousePaymentSubmit").textContent="Сохраняем...";
-  const res=await fetch("/api/mobile/warehouse/payment",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({
-    cashAmount:Number($("warehousePaidCash").value||0),
-    transferAmount:Number($("warehousePaidTransfer").value||0)
-  })});
-  const data=await res.json();
-  const message=$("warehousePaymentMessage");message.hidden=false;message.className=res.ok?"message ok":"message err";
-  message.textContent=res.ok?"Оплата сохранена":(data.error||"Не удалось сохранить оплату");
-  if(res.ok){$("warehousePaidCash").value="";$("warehousePaidTransfer").value="";await loadWarehouseDebt();}
-  $("warehousePaymentSubmit").disabled=false;$("warehousePaymentSubmit").textContent="Сохранить оплату";
+  const message=$("warehousePaymentMessage");
+  try {
+    const { res, data } = await requestJson("/api/mobile/warehouse/payment",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({
+      cashAmount:Number($("warehousePaidCash").value||0),
+      transferAmount:Number($("warehousePaidTransfer").value||0)
+    })});
+    message.hidden=false;message.className=res.ok?"message ok":"message err";
+    message.textContent=res.ok?"Оплата сохранена":(data.error||"Не удалось сохранить оплату");
+    if(res.ok){$("warehousePaidCash").value="";$("warehousePaidTransfer").value="";loadWarehouseDebt();}
+  } finally {
+    $("warehousePaymentSubmit").disabled=false;$("warehousePaymentSubmit").textContent="Сохранить оплату";
+  }
 };
 async function calculateReport(){
   if(appRole === "employee" && (!currentShift || currentShift.closed_at)){
@@ -2191,30 +2246,32 @@ async function calculateReport(){
   }
   $("reportButton").disabled=true;$("reportButton").textContent="Считаем...";
   $("reportMessage").hidden=true;
-  reportEditMode=false;
-  $("reportEditButton").textContent="ПРАВИТЬ";
-  const from=appRole==="employee" ? currentShift.opened_date : $("reportFrom").value;
-  const to=appRole==="employee" ? currentShift.opened_date : ($("reportTo").value || from);
-  const params = new URLSearchParams({from, to, role: appRole});
-  if(appRole==="admin" && $("reportFilter").value.trim()) params.set("filter", $("reportFilter").value.trim());
-  if(appRole==="admin" && adminReportPaymentFilter) params.set("payment", adminReportPaymentFilter);
-  if(appRole==="admin" && adminReportScope !== "all") params.set("scope", adminReportScope);
-  if(appRole==="employee"){
-    params.set("employeeName", appEmployee);
-    params.set("shiftId", currentShift.id);
+  try {
+    reportEditMode=false;
+    $("reportEditButton").textContent="ПРАВИТЬ";
+    const from=appRole==="employee" ? currentShift.opened_date : $("reportFrom").value;
+    const to=appRole==="employee" ? currentShift.opened_date : ($("reportTo").value || from);
+    const params = new URLSearchParams({from, to, role: appRole});
+    if(appRole==="admin" && $("reportFilter").value.trim()) params.set("filter", $("reportFilter").value.trim());
+    if(appRole==="admin" && adminReportPaymentFilter) params.set("payment", adminReportPaymentFilter);
+    if(appRole==="admin" && adminReportScope !== "all") params.set("scope", adminReportScope);
+    if(appRole==="employee"){
+      params.set("employeeName", appEmployee);
+      params.set("shiftId", currentShift.id);
+    }
+    const { res, data } = await requestJson("/api/mobile/report?"+params.toString(), {}, 15000);
+    if(!res.ok){
+      $("reportMessage").hidden=false;$("reportMessage").className="message err";$("reportMessage").textContent=data.error || "Не удалось рассчитать отчет";
+    } else {
+      lastReportData = data;
+      $("reportBox").hidden=false;
+      const periodLine = currentReportPrefix(data);
+      $("reportBox").innerHTML = appRole === "admin" ? renderAdminReport(data, periodLine) : renderEmployeeReport(data, periodLine, false);
+      $("reportEditButton").classList.toggle("hidden", !["employee","admin"].includes(appRole) || !(data.salesRows || []).length);
+    }
+  } finally {
+    $("reportButton").disabled=false;$("reportButton").textContent=appRole==="employee"?"РАССЧИТАТЬ":"Расчет за период";
   }
-  const res=await fetch("/api/mobile/report?"+params.toString());
-  const data=await res.json();
-  if(!res.ok){
-    $("reportMessage").hidden=false;$("reportMessage").className="message err";$("reportMessage").textContent=data.error;
-  } else {
-    lastReportData = data;
-    $("reportBox").hidden=false;
-    const periodLine = currentReportPrefix(data);
-    $("reportBox").innerHTML = appRole === "admin" ? renderAdminReport(data, periodLine) : renderEmployeeReport(data, periodLine, false);
-    $("reportEditButton").classList.toggle("hidden", !["employee","admin"].includes(appRole) || !(data.salesRows || []).length);
-  }
-  $("reportButton").disabled=false;$("reportButton").textContent=appRole==="employee"?"РАССЧИТАТЬ":"Расчет за период";
 }
 $("reportButton").onclick=calculateReport;
 async function loadWorkKpi(){
@@ -2230,8 +2287,7 @@ async function loadWorkKpi(){
     employeeName: appEmployee,
     shiftId: currentShift.id
   });
-  const res = await fetch("/api/mobile/report?"+params.toString());
-  const data = await res.json();
+  const { res, data } = await requestJson("/api/mobile/report?"+params.toString(), {}, 12000);
   if(!res.ok || !data.ok) return;
   $("miniBottles").textContent = Number(data.warehouseBottleTotal || 0).toLocaleString("ru-RU") + " шт.";
   $("miniEarning").textContent = money(data.warehouseServiceAmount);
@@ -2239,8 +2295,7 @@ async function loadWorkKpi(){
 async function loadCoolers(){
   const params = new URLSearchParams();
   if($("coolerFilter").value.trim()) params.set("filter", $("coolerFilter").value.trim());
-  const res = await fetch("/api/mobile/coolers?"+params.toString());
-  const data = await res.json();
+  const { res, data } = await requestJson("/api/mobile/coolers?"+params.toString(), {}, 12000);
   if(!res.ok || !data.ok){
     $("coolerMessage").className = "message err";
     $("coolerMessage").textContent = data.error || "Не удалось загрузить кулеры";
@@ -2459,12 +2514,11 @@ function renderEmployeeReport(data, prefix, editable=false){
     '<div class="report-section">Расходы</div>'+
     renderExpenseRows(data)+
     '<div class="report-line"><span>Всего расходы</span><b>'+money(data.expenseTotal)+'</b></div>'+
-    '<div class="report-line"><span>Расход бутылки 120</span><b>'+money(data.bottleCostTotal)+'</b></div>'+
     '<div class="report-section">Деньги</div>'+
     '<div class="report-line"><span>Заплатили наличными</span><b>'+money(data.cashIncome)+'</b></div>'+
     '<div class="report-line"><span>Заплатили безналом</span><b>'+money(data.transferIncome)+'</b></div>'+
     '<div class="report-line"><span>Общий заработок</span><b>'+money(data.income)+'</b></div>'+
-    '<div class="report-line report-total"><span>Итог после расходов</span><b>'+money(data.profit ?? data.factTotal)+'</b></div>'+
+    '<div class="report-line report-total"><span>Итог после расходов</span><b>'+money(data.factTotal)+'</b></div>'+
     '<div class="report-mini"><div>💵 Наличные<b>'+money(data.cashBalance)+'</b></div><div>🏦 Безнал<b>'+money(data.transferBalance)+'</b></div></div>';
 }
 function renderClientTable(data){
@@ -2535,8 +2589,7 @@ function renderAdminReport(data, prefix, editable=false){
     renderWarehouseDebtReport(data);
 }
 async function loadAssets(){
-  const res = await fetch("/api/mobile/assets");
-  const data = await res.json();
+  const { res, data } = await requestJson("/api/mobile/assets", {}, 12000);
   if(!res.ok || !data.ok) return;
   const total = Math.max(1, Number(data.totalTracked || 0));
   $("assetTotal").textContent = Number(data.totalTracked || 0).toLocaleString("ru-RU") + " шт.";
