@@ -932,7 +932,7 @@ async function buildReport(fromInput, toInput, role = "employee", employeeNameIn
       supabase.from("shipments").select(saleFields).gte("report_date", from).lte("report_date", to).order("created_at", { ascending: false }).limit(2000),
       supabase.from("expenses").select(expenseFields).gte("expense_date", from).lte("expense_date", to).limit(1000),
       supabase.from("stock_arrivals").select("id,report_date,warehouse_name,product_name,quantity_received,purchase_amount").gte("report_date", from).lte("report_date", to).limit(1000),
-      supabase.from("defective_write_offs").select("id,report_date,warehouse_name,defective_quantity,quantity,comment,reason").gte("report_date", from).lte("report_date", to).limit(1000),
+      supabase.from("defective_write_offs").select("id,report_date,warehouse_name,defective_quantity,comment,reason").gte("report_date", from).lte("report_date", to).limit(1000),
       supabase.from("warehouse_payments").select("id,report_date,cash_amount,transfer_amount").gte("report_date", from).lte("report_date", to).limit(1000)
     ]);
     if (salesResult.error) return { status: 500, body: { error: salesResult.error.message } };
