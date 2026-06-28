@@ -1113,13 +1113,13 @@ async function buildAssets() {
     ];
   }
 
-  const deliveredToClients = sum(sales.filter((row) => row.sale_channel === "pavilion"), "quantity_delivered");
-  const returnedFromClients = sum(sales.filter((row) => row.sale_channel === "pavilion"), "quantity_returned");
+  const deliveredToClients = sum(sales, "quantity_delivered");
+  const returnedFromClients = sum(sales, "quantity_returned");
   const clientBottles = Math.max(0, deliveredToClients - returnedFromClients);
   const writtenOff = sum(warehouse.filter((row) => row.entry_type === "writeoff"), "quantity");
   const arrivals = sum(warehouse.filter((row) => row.entry_type === "arrival"), "quantity");
   const warehouseReturns = sum(warehouse.filter((row) => row.entry_type === "return"), "quantity");
-  const warehouseRemaining = Math.max(0, arrivals - warehouseReturns - writtenOff);
+  const warehouseRemaining = Math.max(0, arrivals + returnedFromClients + warehouseReturns - deliveredToClients - writtenOff);
   const totalTracked = warehouseRemaining + clientBottles + writtenOff;
 
   return {
@@ -1687,7 +1687,7 @@ async function requestJson(url, options = {}, timeoutMs = 12000){
   const controller = new AbortController();
   const timer = setTimeout(()=>controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, {...options, signal: controller.signal});
+    const res = await fetch(url, { cache: "no-store", ...options, signal: controller.signal});
     const data = await res.json().catch(()=>({ error: "Пустой ответ сервера" }));
     return { res, data };
   } catch (error) {
