@@ -288,7 +288,7 @@ const server = createServer(async (request, response) => {
         supabaseUrlConfigured: Boolean(env.url),
         supabaseServiceKeyConfigured: Boolean(env.key),
         supabaseReady: Boolean(env.url && env.key),
-        version: "b5993f0-env-check"
+        version: "51da7ad-writeoff-query-fix"
       })
     );
     return;
