@@ -288,7 +288,7 @@ const server = createServer(async (request, response) => {
         supabaseUrlConfigured: Boolean(env.url),
         supabaseServiceKeyConfigured: Boolean(env.key),
         supabaseReady: Boolean(env.url && env.key),
-        version: "51da7ad-writeoff-query-fix"
+        version: "38b57ea-flat-speed-ui"
       })
     );
     return;
@@ -1480,6 +1480,26 @@ function mobileHtml() {
     .boot-loader{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:radial-gradient(circle at 50% 78%,rgba(74,0,216,.62),transparent 36%),linear-gradient(180deg,#05010d,#180044 120%);transition:opacity .28s ease,visibility .28s ease}.boot-loader.hidden{opacity:0;visibility:hidden;pointer-events:none}.boot-loader-card{display:grid;place-items:center;gap:16px;color:white}.boot-loader img{width:92px;height:92px;border-radius:26px;box-shadow:0 24px 70px rgba(50,0,150,.46)}.loader-ring{width:42px;height:42px;border-radius:50%;border:3px solid rgba(255,255,255,.18);border-top-color:#a1bdff;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
     .report-tools{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end}.report-tools label{min-width:0}.mini-btn{height:44px;border:1px solid rgba(216,225,255,.18);border-radius:999px;background:rgba(255,255,255,.08);color:#fff;font-size:12px;font-weight:900;padding:0 14px}.report-table{display:grid;gap:7px;overflow-x:auto;padding-bottom:2px}.report-row{display:grid;grid-template-columns:1.3fr .8fr .7fr .7fr .7fr .9fr;gap:6px;align-items:center;min-width:390px;padding:8px;border:1px solid rgba(216,225,255,.12);border-radius:14px;background:rgba(255,255,255,.055);font-size:11px}.report-row.head{color:#a1bdff;font-weight:900;background:rgba(161,189,255,.08)}.report-row b{font-size:12px}.report-row span,.report-row b{min-width:0;overflow:hidden;text-overflow:ellipsis}.client-table .report-row{grid-template-columns:1.25fr .55fr .55fr .55fr .9fr .55fr .65fr;min-width:470px}.client-table .report-row b.paid{color:#dbe8ff;font-size:12px}.client-table .method{display:inline-grid;place-items:center;min-width:42px;height:24px;border-radius:999px;background:rgba(161,189,255,.12);border:1px solid rgba(161,189,255,.18);font-weight:900;color:#fff}.report-row input{height:34px!important;font-size:13px!important;border-radius:12px!important;padding:0 8px}.report-row .danger-small{height:34px;border:0;border-radius:12px;background:rgba(255,80,106,.18);color:#ffb3bf;font-weight:900}.profit-cards{display:grid;grid-template-columns:1fr 1fr;gap:8px}.profit-card{padding:10px;border-radius:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10)}.profit-card span{display:block;color:var(--muted);font-size:11px;font-weight:800}.profit-card b{display:block;margin-top:4px;font-size:16px}.warehouse-debt{display:grid;gap:9px;padding:10px;border-radius:20px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10)}.paid-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
     .client-list{display:grid;gap:8px;min-width:0;max-width:100%}.client-table{min-width:0;max-width:100%;overflow:visible!important}.client-table .report-row{min-width:0!important;width:100%;grid-template-columns:minmax(0,1fr) minmax(0,.9fr) minmax(0,1fr);grid-template-areas:"name method cooler" "time time time" "sold writeoff paid" "returned returned returned";gap:7px 8px;padding:10px 11px}.client-table .report-row.head{display:none}.client-table .report-row>*{white-space:normal!important}.client-table .report-row>b:first-child{grid-area:name;font-size:14px;white-space:nowrap!important;overflow:hidden;text-overflow:ellipsis}.client-time{grid-area:time;color:var(--muted);font-size:10px;font-weight:750;line-height:1.25;white-space:normal!important;overflow-wrap:anywhere}.client-table .method{grid-area:method;justify-self:end;min-width:48px;height:25px}.client-table .report-row>*:nth-child(4){grid-area:sold}.client-table .report-row>*:nth-child(5){grid-area:returned}.client-table .report-row>*:nth-child(6){grid-area:paid;justify-self:end;text-align:right}.client-table .report-row>*:nth-child(7){grid-area:writeoff}.client-table .report-row>*:nth-child(8){grid-area:cooler;justify-self:end;text-align:right}.client-table .report-row:not(.head)>*:nth-child(n+4)::before{display:block;color:var(--muted);font-size:9px;font-weight:800;line-height:1.1;margin-bottom:2px}.client-table .report-row:not(.head)>*:nth-child(4)::before{content:"Продал"}.client-table .report-row:not(.head)>*:nth-child(5)::before{content:"Забрал"}.client-table .report-row:not(.head)>*:nth-child(6)::before{content:"Оплатил"}.client-table .report-row:not(.head)>*:nth-child(7)::before{content:"Списания"}.client-toggle{justify-self:start;margin-top:2px}.expense-report-table .report-row{min-width:0!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}.expense-report-table .report-row span:nth-last-child(-n+2),.expense-report-table .report-row b:nth-last-child(-n+2){display:none}.expense-report-table .report-row span,.expense-report-table .report-row b{font-size:10px!important;white-space:nowrap!important;text-overflow:ellipsis}.expense-report-table .report-row b{font-size:11px!important}.report-payments,.report-scope{display:grid;gap:8px}.report-payments{grid-template-columns:1fr 1fr}.report-scope{grid-template-columns:repeat(4,minmax(0,1fr))}.report-payments button,.report-scope button,.reset-btn{height:42px;border:1px solid rgba(216,225,255,.18);border-radius:999px;background:rgba(255,255,255,.08);color:#dbe8ff;font-size:12px;font-weight:900}.report-payments button.active,.report-scope button.active{background:linear-gradient(135deg,#320096,#849bff);color:white;box-shadow:0 12px 30px rgba(70,142,255,.30)}.reset-btn{margin-top:auto;background:rgba(255,80,106,.15);border-color:rgba(255,80,106,.30);color:#ffb3bf}.reset-btn:disabled{opacity:.55}.report-box{max-width:100%;overflow:hidden}.report-row small{display:block;margin-top:3px;color:var(--muted);font-size:10px;font-weight:750;line-height:1.2;white-space:normal;overflow-wrap:anywhere}.report-line span{min-width:0}.report-line b{white-space:normal!important;overflow-wrap:anywhere}#reportPage .panel,#auditPage .panel,#coolersPage .panel{padding-bottom:calc(var(--content-bottom) + 10px)!important}
+    /* Flat navy redesign */
+    :root{--ink:#f7faff;--muted:#93a1b7;--line:rgba(130,160,205,.22);--aqua:#4f8cff;--soft:rgba(255,255,255,.055);--danger:#ff6f83;--panel:#0b1422;--panel2:#111d2f;--glow:#8eb8ff}
+    body{background:#050b14!important;color:var(--ink)!important}
+    body:before{background:radial-gradient(circle at 50% 42%,rgba(62,108,170,.16),transparent 46%)!important;filter:none!important}
+    body:after{background:linear-gradient(180deg,rgba(255,255,255,.018),transparent 28%,rgba(0,0,0,.18))!important}
+    main{padding-top:calc(var(--device-top) + 12px)!important}
+    header{margin-bottom:18px!important}.brand{gap:14px!important}.logo{background:#10213a!important;box-shadow:0 10px 28px rgba(0,0,0,.26)!important;border:1px solid rgba(118,154,218,.18)!important}.logo img{border-radius:inherit}
+    h1{font-weight:900!important;color:#fff!important}.sub{color:#a4afc1!important}.pill,.shift-pill,.channel-badge{background:#142238!important;border-color:rgba(130,160,205,.28)!important;color:#d6e4ff!important;box-shadow:none!important}
+    .card{background:#08111f!important;border:1px solid rgba(100,132,188,.28)!important;border-radius:24px!important;box-shadow:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+    form,.panel{padding:18px!important;gap:16px!important}.sum,.report-box,.closed-summary,.work-kpi div,.profit-card,.warehouse-debt,.report-mini div,.asset-card,.asset-icon{background:#111c2d!important;border:1px solid rgba(130,160,205,.18)!important;border-radius:20px!important;box-shadow:none!important}
+    label span,.row span:first-child,.hint,.fixed-list,.report-section,.asset-title,.asset-sub,.work-kpi span{color:#a8b5c9!important}
+    input,textarea{background:#090f1b!important;border:1px solid rgba(130,160,205,.24)!important;color:#fff!important;border-radius:18px!important;box-shadow:none!important}input:focus,textarea:focus{border-color:#77aaff!important;box-shadow:0 0 0 3px rgba(79,140,255,.18)!important}
+    .prices,.payments{background:transparent!important;border:0!important;box-shadow:none!important}.price,.payment,.expense-btn,.cooler-btn,.mini-btn,.report-payments button,.report-scope button{background:#121d2f!important;border:1px solid rgba(130,160,205,.20)!important;color:#dbe5f6!important;border-radius:20px!important;box-shadow:none!important}
+    .price.active,.payment.active,.expense-btn.active,.report-payments button.active,.report-scope button.active,.footer button.active{background:linear-gradient(135deg,#3f7cff,#83b5ff)!important;border-color:rgba(152,194,255,.55)!important;color:#fff!important;box-shadow:none!important}
+    .submit,.logout-btn,.close-btn{background:linear-gradient(135deg,#3f7cff,#91bdff)!important;border:0!important;color:#fff!important;box-shadow:none!important;border-radius:22px!important}.submit:disabled{opacity:.72;filter:none!important}
+    .ok{background:rgba(39,180,132,.13)!important;color:#7de7bd!important;border:1px solid rgba(84,221,171,.24)!important}.err{background:rgba(255,92,119,.14)!important;color:#ff9aaa!important;border:1px solid rgba(255,111,131,.28)!important}
+    .footer-inner{background:#101b2d!important;border:1px solid rgba(130,160,205,.28)!important;box-shadow:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}.footer button{color:#aab7cc!important}
+    .boot-loader{background:#050b14!important}.loader-ring{border-color:rgba(255,255,255,.12)!important;border-top-color:#78aaff!important}
+    .logged-out{background:#050b14!important}.logged-out:before{opacity:.74!important}.logged-out #showLoginButton,.logged-out #loginButton{background:linear-gradient(135deg,#3f7cff,#91bdff)!important;color:#fff!important;box-shadow:none!important}.logged-out #pinBlock{background:#08111f!important;border-color:rgba(130,160,205,.25)!important;box-shadow:none!important}
+    .asset-line{background:#152236!important;border-color:rgba(130,160,205,.22)!important;box-shadow:none!important}.asset-line-warehouse{background:#69d8ff!important}.asset-line-client{background:#4f8cff!important}.asset-line-writeoff{background:#9a2340!important}
   </style>
 </head>
 <body>
@@ -1658,6 +1678,7 @@ let destinationSuggestTimer = null;
 let coolerRows = [];
 let coolersExpanded = false;
 let coolerFilterTimer = null;
+const MUTATION_TIMEOUT_MS = 45000;
 const $ = (id) => document.getElementById(id);
 function readStoredShift(){
   try {
@@ -1695,6 +1716,18 @@ async function requestJson(url, options = {}, timeoutMs = 12000){
   } finally {
     clearTimeout(timer);
   }
+}
+function warmServer(){
+  requestJson("/api/mobile/health", {}, MUTATION_TIMEOUT_MS).catch(() => {});
+}
+function clearTransientMessages(){
+  ["message","expenseMessage","warehouseMessage","warehousePaymentMessage","openShiftMessage"].forEach((id)=>{
+    const el = $(id);
+    if(el && el.classList.contains("message")){
+      el.hidden = true;
+      el.textContent = "";
+    }
+  });
 }
 function applyRoleState(){
   const loggedIn = appRole === "employee" || appRole === "admin";
@@ -1764,6 +1797,7 @@ function applyShiftState(){
   }
 }
 function showPage(page){
+  clearTransientMessages();
   const loggedIn = appRole === "employee" || appRole === "admin";
   $("homePage").classList.toggle("active", page==="home");
   $("workPage").classList.toggle("active", page==="work");
@@ -2017,6 +2051,7 @@ $("resetDataButton").onclick=async()=>{
   $("resetDataButton").textContent = "RESET";
 };
 $("openShiftButton").onclick=async()=>{
+  clearTransientMessages();
   $("openShiftButton").disabled=true;$("openShiftButton").textContent="Открываем...";
   const { res, data } = await requestJson("/api/mobile/shift/open",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({employeeName:appEmployee})});
   if(res.ok){
@@ -2125,9 +2160,9 @@ $("form").onsubmit=async(e)=>{
       shiftId: currentShift ? currentShift.id : "",
       quantityDelivered:Number($("sold").value),
       quantityReturned:Number($("returned").value||0)
-    })});
-    message.hidden=false;message.className=res.ok?"message ok":"message err";
-    message.textContent=res.ok?("Сохранено: "+$("destination").value+", "+$("sold").value+" шт., сумма "+$("total").textContent):(data.error || "Не удалось сохранить");
+    })}, MUTATION_TIMEOUT_MS);
+    message.hidden=res.ok;message.className=res.ok?"message ok":"message err";
+    message.textContent=res.ok?"":(data.error || "Не удалось сохранить");
     if(res.ok){
       $("destination").value="";$("sold").value="";$("returned").value="";render();
       if(employeeKind === "warehouse" || saleChannel === "warehouse") loadWorkKpi();
@@ -2160,10 +2195,10 @@ $("expenseForm").onsubmit=async(e)=>{
       ...entry,
       employeeName: appEmployee,
       shiftId: currentShift ? currentShift.id : ""
-    })})));
+    })}, MUTATION_TIMEOUT_MS)));
     const failed = results.find((item)=>!item.res.ok);
-    message.className=failed?"message err":"message ok";
-    message.textContent=failed?(failed.data.error||"Не удалось сохранить расход"):("Расходы сохранены: "+money(entries.reduce((sum,item)=>sum+item.amount,0)));
+    message.hidden=!failed;message.className=failed?"message err":"message ok";
+    message.textContent=failed?(failed.data.error||"Не удалось сохранить расход"):"";
     if(!failed){
       selectedExpenses.clear();
       $("expenseSalaryAmount").value="";
@@ -2197,10 +2232,10 @@ $("warehouseForm").onsubmit=async(e)=>{
     return;
   }
   try {
-    const results = await Promise.all(entries.map((entry)=>requestJson("/api/mobile/warehouse",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(entry)})));
+    const results = await Promise.all(entries.map((entry)=>requestJson("/api/mobile/warehouse",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(entry)}, MUTATION_TIMEOUT_MS)));
     const failed = results.find((item)=>!item.res.ok);
-    message.className=failed?"message err":"message ok";
-    message.textContent=failed?(failed.data.error||"Не удалось сохранить склад"):("Склад сохранен: "+entries.map((item)=>warehouseTypeName(item.entryType)+" "+item.quantity+" шт.").join(", "));
+    message.hidden=!failed;message.className=failed?"message err":"message ok";
+    message.textContent=failed?(failed.data.error||"Не удалось сохранить склад"):"";
     if(!failed){
       $("warehouseArrivalQuantity").value="";
       $("warehouseReturnQuantity").value="";
@@ -2224,9 +2259,9 @@ $("warehousePaymentForm").onsubmit=async(e)=>{
     const { res, data } = await requestJson("/api/mobile/warehouse/payment",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({
       cashAmount:Number($("warehousePaidCash").value||0),
       transferAmount:Number($("warehousePaidTransfer").value||0)
-    })});
-    message.hidden=false;message.className=res.ok?"message ok":"message err";
-    message.textContent=res.ok?"Оплата сохранена":(data.error||"Не удалось сохранить оплату");
+    })}, MUTATION_TIMEOUT_MS);
+    message.hidden=res.ok;message.className=res.ok?"message ok":"message err";
+    message.textContent=res.ok?"":(data.error||"Не удалось сохранить оплату");
     if(res.ok){$("warehousePaidCash").value="";$("warehousePaidTransfer").value="";loadWarehouseDebt();}
   } finally {
     $("warehousePaymentSubmit").disabled=false;$("warehousePaymentSubmit").textContent="Сохранить оплату";
@@ -2613,8 +2648,10 @@ renderExpense();
 renderWarehouse();
 applyShiftState();
 render();
+warmServer();
 if (appRole === "admin") loadAssets();
 window.addEventListener("load", () => {
+  warmServer();
   setTimeout(() => $("bootLoader")?.classList.add("hidden"), 350);
 });
 setTimeout(() => $("bootLoader")?.classList.add("hidden"), 1800);
