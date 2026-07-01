@@ -288,7 +288,7 @@ const server = createServer(async (request, response) => {
         supabaseUrlConfigured: Boolean(env.url),
         supabaseServiceKeyConfigured: Boolean(env.key),
         supabaseReady: Boolean(env.url && env.key),
-        version: "38b57ea-flat-speed-ui"
+        version: "f5d88a4-warehouse-recalc"
       })
     );
     return;
@@ -676,23 +676,35 @@ async function buildWarehouseDebt(fromInput, toInput) {
   const to = normalizeDate(toInput) ?? moscowDate();
   const supabase = await createSupabaseAdminClient();
   let arrivals = memoryWarehouse.filter((row) => row.entry_type === "arrival" && inPeriod(row.report_date, from, to));
+  let warehouseReturns = memoryWarehouse.filter((row) => row.entry_type === "return" && inPeriod(row.report_date, from, to));
+  let writeoffs = memoryWarehouse.filter((row) => row.entry_type === "writeoff" && inPeriod(row.report_date, from, to));
   let payments = memoryWarehousePayments.filter((row) => inPeriod(row.report_date, from, to));
   let sales = memorySales.filter((row) => inPeriod(row.report_date, from, to));
   if (supabase) {
-    const [arrivalsResult, paymentsResult, salesResult] = await Promise.all([
+    const [arrivalsResult, returnsResult, writeoffsResult, paymentsResult, salesResult] = await Promise.all([
       supabase.from("stock_arrivals").select("*").gte("report_date", from).lte("report_date", to),
+      supabase.from("remaining_stock_reports").select("*").gte("report_date", from).lte("report_date", to),
+      supabase.from("defective_write_offs").select("*").gte("report_date", from).lte("report_date", to),
       supabase.from("warehouse_payments").select("*").gte("report_date", from).lte("report_date", to),
       supabase.from("shipments").select("*").gte("report_date", from).lte("report_date", to)
     ]);
     if (arrivalsResult.error) return { status: 500, body: { error: arrivalsResult.error.message } };
+    if (returnsResult.error) return { status: 500, body: { error: returnsResult.error.message } };
+    if (writeoffsResult.error) return { status: 500, body: { error: writeoffsResult.error.message } };
     if (paymentsResult.error) return { status: 500, body: { error: paymentsResult.error.message } };
     if (salesResult.error) return { status: 500, body: { error: salesResult.error.message } };
     arrivals = arrivalsResult.data ?? [];
+    warehouseReturns = returnsResult.data ?? [];
+    writeoffs = writeoffsResult.data ?? [];
     payments = paymentsResult.data ?? [];
     sales = salesResult.data ?? [];
   }
   const bottles = sum(arrivals, "quantity_received") || sum(arrivals, "quantity");
+  const returnedBottles = sum(warehouseReturns, "remaining_quantity") || sum(warehouseReturns, "quantity");
+  const writtenOffBottles = sum(writeoffs, "defective_quantity") || sum(writeoffs, "quantity");
   const sentBottles = sum(sales, "quantity_sold");
+  const clientReturns = sum(sales, "quantity_returned");
+  const stockRemaining = Math.max(0, bottles + clientReturns - returnedBottles - sentBottles - writtenOffBottles);
   const cashDebt = bottles * 115;
   const transferDebt = bottles * 5;
   const cashPaid = sum(payments, "cash_amount");
@@ -703,7 +715,11 @@ async function buildWarehouseDebt(fromInput, toInput) {
       ok: true,
       period: { from, to },
       bottles,
+      returnedBottles,
+      writtenOffBottles,
       sentBottles,
+      clientReturns,
+      stockRemaining,
       cashDebt,
       transferDebt,
       totalDebt: cashDebt + transferDebt,
@@ -1119,7 +1135,7 @@ async function buildAssets() {
   const writtenOff = sum(warehouse.filter((row) => row.entry_type === "writeoff"), "quantity");
   const arrivals = sum(warehouse.filter((row) => row.entry_type === "arrival"), "quantity");
   const warehouseReturns = sum(warehouse.filter((row) => row.entry_type === "return"), "quantity");
-  const warehouseRemaining = Math.max(0, arrivals + returnedFromClients + warehouseReturns - deliveredToClients - writtenOff);
+  const warehouseRemaining = Math.max(0, arrivals + returnedFromClients - warehouseReturns - deliveredToClients - writtenOff);
   const totalTracked = warehouseRemaining + clientBottles + writtenOff;
 
   return {
@@ -1130,6 +1146,7 @@ async function buildAssets() {
       warehouseRemaining,
       clientBottles,
       writtenOff,
+      warehouseReturns,
       deliveredToClients,
       returnedFromClients
     }
@@ -1500,6 +1517,7 @@ function mobileHtml() {
     .boot-loader{background:#050b14!important}.loader-ring{border-color:rgba(255,255,255,.12)!important;border-top-color:#78aaff!important}
     .logged-out{background:#050b14!important}.logged-out:before{opacity:.74!important}.logged-out #showLoginButton,.logged-out #loginButton{background:linear-gradient(135deg,#3f7cff,#91bdff)!important;color:#fff!important;box-shadow:none!important}.logged-out #pinBlock{background:#08111f!important;border-color:rgba(130,160,205,.25)!important;box-shadow:none!important}
     .asset-line{background:#152236!important;border-color:rgba(130,160,205,.22)!important;box-shadow:none!important}.asset-line-warehouse{background:#69d8ff!important}.asset-line-client{background:#4f8cff!important}.asset-line-writeoff{background:#9a2340!important}
+    .suggestions{display:none!important}.recent-orders{display:grid;gap:7px;padding:10px;border:1px solid rgba(130,160,205,.18);border-radius:18px;background:#111c2d}.recent-orders.hidden{display:none!important}.recent-title{color:#a8b5c9;font-size:11px;font-weight:850;text-transform:uppercase}.recent-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid rgba(130,160,205,.12)}.recent-row:first-of-type{border-top:0}.recent-row b{font-size:13px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recent-row span{font-size:12px;color:#a8b5c9;white-space:nowrap}.recent-row small{display:block;margin-top:2px;color:#73849b;font-size:10px;font-weight:750}
   </style>
 </head>
 <body>
@@ -1535,6 +1553,7 @@ function mobileHtml() {
               <div class="asset-card"><div class="asset-icon">✕</div><div><div class="asset-title">Списанные</div><div class="asset-sub">брак и списания</div></div><div class="asset-value" id="assetWriteoff">0</div></div>
             </div>
             <p class="hint">Данные обновляются от продаж, возвратов и складских списаний.</p>
+            <button id="assetRefreshButton" class="mini-btn" type="button">Перерасчет</button>
           </div>
         </section>
         <div id="closedSummary" class="closed-summary" hidden></div>
@@ -1551,7 +1570,7 @@ function mobileHtml() {
     <section class="card tabs"><div id="warehouse" class="tab">Склад</div><div id="pavilion" class="tab active">Павильон</div></section>
     <section id="warehouseMini" class="card work-kpi hidden"><div><span>📦 Продано бутылок</span><b id="miniBottles">0 шт.</b></div><div><span>💰 Расчет по 70</span><b id="miniEarning">0 руб.</b></div></section>
     <form id="form" class="card">
-      <div class="destination-grid"><label class="destination-field"><span id="destinationLabel">Номер павильона</span><input id="destination" type="text" inputmode="text" placeholder="Например: 12" autocomplete="off" required /><div id="destinationSuggestions" class="suggestions hidden"></div></label><button id="coolerOur" class="cooler-btn our active" type="button">💧</button><button id="coolerNot" class="cooler-btn not" type="button">💧</button></div>
+      <div class="destination-grid"><label class="destination-field"><span id="destinationLabel">Номер павильона</span><input id="destination" type="text" inputmode="text" placeholder="Например: 12" autocomplete="off" autocorrect="off" spellcheck="false" required /><div id="destinationSuggestions" class="suggestions hidden"></div></label><button id="coolerOur" class="cooler-btn our active" type="button">💧</button><button id="coolerNot" class="cooler-btn not" type="button">💧</button></div>
       <div class="quantity-grid">
         <label><span>Продал</span><input id="sold" inputmode="numeric" pattern="[0-9]*" placeholder="20" required /></label>
         <label id="returnedWrap"><span>Забрал</span><input id="returned" inputmode="numeric" pattern="[0-9]*" placeholder="3" /></label>
@@ -1559,6 +1578,7 @@ function mobileHtml() {
       <section class="card prices"><button id="price200" class="price" type="button">200 руб.</button><button id="price250" class="price" type="button">250 руб.</button><button id="price300" class="price active" type="button">300 руб.</button></section>
       <section class="card payments"><button id="cash" class="payment active" type="button">НАЛ</button><button id="transfer" class="payment" type="button">БНАЛ</button></section>
       <div class="sum"><div class="row"><span>Цена</span><b id="priceText">300 руб. / бутылка</b></div><div class="row"><span>Итого</span><b class="total" id="total">0 руб.</b></div></div>
+      <section id="recentOrdersBox" class="recent-orders hidden"></section>
       <p id="message" hidden></p>
       <button id="submit" class="submit" type="submit">Сохранить продажу</button>
     </form>
@@ -1588,7 +1608,7 @@ function mobileHtml() {
     <div class="card panel">
       <label id="reportFromWrap"><span>Дата с</span><input id="reportFrom" type="date" /></label>
       <label id="reportToWrap"><span>Дата по</span><input id="reportTo" type="date" /></label>
-      <div class="report-tools"><label id="reportFilterWrap"><span>Фильтр павильон/склад</span><input id="reportFilter" type="text" inputmode="text" placeholder="Например: 12 или Основной" /></label><button id="reportEditButton" class="mini-btn hidden" type="button">ПРАВИТЬ</button></div>
+      <div class="report-tools"><label id="reportFilterWrap"><span>Фильтр павильон/склад</span><input id="reportFilter" type="text" inputmode="text" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Например: 12 или Основной" /></label><button id="reportEditButton" class="mini-btn hidden" type="button">ПРАВИТЬ</button></div>
       <div id="reportScopeFilter" class="report-scope admin-only hidden"><button id="scopeAll" class="active" type="button">Все</button><button id="scopeFloor1" type="button">Этаж 1</button><button id="scopeFloor2" type="button">Этаж 2</button><button id="scopeWarehouse" type="button">Склад</button></div>
       <div id="reportPaymentFilter" class="report-payments admin-only hidden"><button id="reportCashFilter" type="button">НАЛ</button><button id="reportTransferFilter" type="button">БНАЛ</button></div>
       <p id="employeeShiftInfo" class="shift-pill hidden"></p>
@@ -1621,6 +1641,13 @@ function mobileHtml() {
         <p id="warehouseMessage" hidden></p>
         <button id="warehouseSubmit" class="submit" type="submit">Сохранить склад</button>
       </form>
+      <div class="warehouse-debt">
+        <div class="report-section">Период сводки</div>
+        <div class="paid-grid">
+          <label><span>Дата с</span><input id="warehouseFrom" type="date" /></label>
+          <label><span>Дата по</span><input id="warehouseTo" type="date" /></label>
+        </div>
+      </div>
       <div id="warehouseDebtBox" class="warehouse-debt" hidden></div>
       <form id="warehousePaymentForm" class="warehouse-debt" hidden>
         <div class="report-section">Оплатил</div>
@@ -1648,7 +1675,7 @@ function mobileHtml() {
     <div class="card panel">
       <div class="report-box">
         <div class="report-line"><span>Наши кулеры</span><b id="coolerTotal">0 шт.</b></div>
-        <label><span>Поиск павильона/склада</span><input id="coolerFilter" type="text" inputmode="text" placeholder="Например: Администрация" /></label>
+        <label><span>Поиск павильона/склада</span><input id="coolerFilter" type="text" inputmode="text" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Например: Администрация" /></label>
         <div id="coolerList" class="cooler-list"></div>
         <button id="coolerToggle" class="mini-btn hidden" type="button">Развернуть</button>
         <p id="coolerMessage" class="hint">Список собирается из отметок сотрудников “кулер наш”.</p>
@@ -1671,6 +1698,7 @@ let employeeKind = localStorage.getItem("waterOpsEmployeeKind") || "pavilion";
 let currentShift = readStoredShift();
 let lastClosedReport = localStorage.getItem("waterOpsLastClosedReport") || "";
 let lastReportData = null;
+let recentOrders = readRecentOrders();
 let reportEditMode = false;
 let adminReportPaymentFilter = "";
 let adminReportScope = "all";
@@ -1688,6 +1716,35 @@ function readStoredShift(){
     localStorage.removeItem("waterOpsShift");
     return null;
   }
+}
+function readRecentOrders(){
+  try {
+    const rows = JSON.parse(localStorage.getItem("waterOpsRecentOrders") || "[]");
+    return Array.isArray(rows) ? rows.slice(0, 3) : [];
+  } catch (error) {
+    localStorage.removeItem("waterOpsRecentOrders");
+    return [];
+  }
+}
+function saveRecentOrder(order){
+  recentOrders = [order, ...recentOrders].slice(0, 3);
+  localStorage.setItem("waterOpsRecentOrders", JSON.stringify(recentOrders));
+  renderRecentOrders();
+}
+function renderRecentOrders(){
+  const box = $("recentOrdersBox");
+  if(!box) return;
+  if(!recentOrders.length){
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    return;
+  }
+  box.classList.remove("hidden");
+  box.innerHTML = '<div class="recent-title">Последние 3 заказа</div>' + recentOrders.map((order)=>(
+    '<div class="recent-row"><div><b>'+escapeHtml(order.destination || "Клиент")+'</b><small>'+
+    escapeHtml(order.time || "")+' · '+escapeHtml(order.payment || "")+' · '+Number(order.price || 0)+' руб.</small></div><span>'+
+    Number(order.sold || 0)+' шт. / '+money(order.amount || 0)+'</span></div>'
+  )).join("");
 }
 function clearBootLoader(){
   $("bootLoader")?.classList.add("hidden");
@@ -1857,25 +1914,7 @@ function hideDestinationSuggestions(){
 }
 async function loadDestinationSuggestions(){
   clearTimeout(destinationSuggestTimer);
-  destinationSuggestTimer = setTimeout(async()=>{
-    const query = $("destination").value.trim();
-    if(!query){
-      hideDestinationSuggestions();
-      return;
-    }
-    const params = new URLSearchParams({ q: query, channel: saleChannel });
-    const res = await fetch("/api/mobile/destinations?"+params.toString());
-    const data = await res.json().catch(()=>({suggestions:[]}));
-    const suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
-    if(!res.ok || !suggestions.length){
-      hideDestinationSuggestions();
-      return;
-    }
-    $("destinationSuggestions").innerHTML = suggestions.map((name)=>
-      '<button class="suggestion-btn" type="button" data-name="'+escapeHtml(name)+'">'+escapeHtml(name)+'</button>'
-    ).join("");
-    $("destinationSuggestions").classList.remove("hidden");
-  }, 120);
+  hideDestinationSuggestions();
 }
 function renderExpense(){
   $("expenseParking").classList.toggle("active", selectedExpenses.has("parking"));
@@ -2117,9 +2156,21 @@ $("expenseOther").onclick=()=>toggleExpense("other");
 $("expenseSalaryAmount").oninput=renderExpense;
 $("expenseOtherAmount").oninput=renderExpense;
 $("expenseComment").oninput=renderExpense;
+$("warehouseFrom").oninput=loadWarehouseDebt;
+$("warehouseTo").oninput=loadWarehouseDebt;
 $("warehouseArrival").onclick=()=>toggleWarehouseEntry("arrival");
 $("warehouseReturn").onclick=()=>toggleWarehouseEntry("return");
 $("warehouseWriteoff").onclick=()=>toggleWarehouseEntry("writeoff");
+$("assetRefreshButton").onclick=async()=>{
+  $("assetRefreshButton").disabled = true;
+  $("assetRefreshButton").textContent = "Считаем...";
+  try {
+    await loadAssets();
+  } finally {
+    $("assetRefreshButton").disabled = false;
+    $("assetRefreshButton").textContent = "Перерасчет";
+  }
+};
 $("reportEditButton").onclick=async()=>{
   if(!lastReportData) return;
   if(!reportEditMode){
@@ -2149,21 +2200,34 @@ $("form").onsubmit=async(e)=>{
   $("submit").disabled=true;$("submit").textContent="Сохраняем...";
   const message=$("message");
   try {
+    const orderDestination = $("destination").value.trim();
+    const orderSold = Number($("sold").value || 0);
+    const orderReturned = Number($("returned").value || 0);
+    const orderAmount = orderSold * unitPrice;
     const { res, data } = await requestJson("/api/mobile/sales",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({
       saleChannel,
-      destinationName:saleChannel==="warehouse"?$("destination").value:undefined,
-      pavilionCode:saleChannel==="pavilion"?$("destination").value:undefined,
+      destinationName:saleChannel==="warehouse"?orderDestination:undefined,
+      pavilionCode:saleChannel==="pavilion"?orderDestination:undefined,
       unitPrice,
       paymentType,
       coolerStatus,
       employeeName: appEmployee,
       shiftId: currentShift ? currentShift.id : "",
-      quantityDelivered:Number($("sold").value),
-      quantityReturned:Number($("returned").value||0)
+      quantityDelivered:orderSold,
+      quantityReturned:orderReturned
     })}, MUTATION_TIMEOUT_MS);
     message.hidden=res.ok;message.className=res.ok?"message ok":"message err";
     message.textContent=res.ok?"":(data.error || "Не удалось сохранить");
     if(res.ok){
+      saveRecentOrder({
+        destination: orderDestination,
+        sold: orderSold,
+        returned: orderReturned,
+        amount: orderAmount,
+        price: unitPrice,
+        payment: paymentType === "cash" ? "НАЛ" : "БНАЛ",
+        time: new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Moscow" }).format(new Date())
+      });
       $("destination").value="";$("sold").value="";$("returned").value="";render();
       if(employeeKind === "warehouse" || saleChannel === "warehouse") loadWorkKpi();
     }
@@ -2447,7 +2511,10 @@ async function saveReportEdits(){
   await calculateReport();
 }
 async function loadWarehouseDebt(){
-  const res = await fetch("/api/mobile/warehouse/debt");
+  const params = new URLSearchParams();
+  if($("warehouseFrom").value) params.set("from", $("warehouseFrom").value);
+  if($("warehouseTo").value) params.set("to", $("warehouseTo").value);
+  const res = await fetch("/api/mobile/warehouse/debt?"+params.toString());
   const data = await res.json();
   const box = $("warehouseDebtBox");
   const form = $("warehousePaymentForm");
@@ -2460,7 +2527,11 @@ async function loadWarehouseDebt(){
   box.innerHTML =
     '<div class="report-section">Общая сводка</div>'+
     '<div class="report-line"><span>Всего приняли</span><b>'+Number(data.bottles||0)+' шт.</b></div>'+
-    '<div class="report-line"><span>Всего отправили</span><b>'+Number(data.sentBottles||0)+' шт.</b></div>'+
+    '<div class="report-line"><span>Вернули со склада</span><b>'+Number(data.returnedBottles||0)+' шт.</b></div>'+
+    '<div class="report-line"><span>Списали</span><b>'+Number(data.writtenOffBottles||0)+' шт.</b></div>'+
+    '<div class="report-line"><span>Отправили клиентам</span><b>'+Number(data.sentBottles||0)+' шт.</b></div>'+
+    '<div class="report-line"><span>Забрали от клиентов</span><b>'+Number(data.clientReturns||0)+' шт.</b></div>'+
+    '<div class="report-line report-total"><span>Остаток склада</span><b>'+Number(data.stockRemaining||0)+' шт.</b></div>'+
     '<div class="report-section">Долг за бутылки</div>'+
     '<div class="report-line"><span>Приход</span><b>'+Number(data.bottles||0)+' шт. × 120</b></div>'+
     '<div class="report-line"><span>Нал 115</span><b>'+money(data.cashRemaining)+' осталось</b></div>'+
@@ -2643,9 +2714,11 @@ const today = new Intl.DateTimeFormat("en-CA", {
 }).format(new Date());
 $("reportFrom").value=today;$("reportTo").value=today;
 $("auditFrom").value=today;$("auditTo").value=today;
+$("warehouseFrom").value=today;$("warehouseTo").value=today;
 render();
 renderExpense();
 renderWarehouse();
+renderRecentOrders();
 applyShiftState();
 render();
 warmServer();
