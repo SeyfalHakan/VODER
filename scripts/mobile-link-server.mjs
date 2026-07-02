@@ -709,7 +709,7 @@ async function buildWarehouseDebt(fromInput, toInput) {
   const writtenOffBottles = sum(writeoffs, "defective_quantity") || sum(writeoffs, "quantity");
   const sentBottles = sum(sales, "quantity_sold");
   const clientReturns = sum(sales, "quantity_returned");
-  const stockRemaining = Math.max(0, bottles + clientReturns - returnedBottles - sentBottles - writtenOffBottles);
+  const stockRemaining = Math.max(0, bottles - returnedBottles - writtenOffBottles);
   const cashDebt = bottles * 115;
   const transferDebt = bottles * 5;
   const cashPaid = sum(payments, "cash_amount");
@@ -1140,7 +1140,7 @@ async function buildAssets() {
   const writtenOff = sum(warehouse.filter((row) => row.entry_type === "writeoff"), "quantity");
   const arrivals = sum(warehouse.filter((row) => row.entry_type === "arrival"), "quantity");
   const warehouseReturns = sum(warehouse.filter((row) => row.entry_type === "return"), "quantity");
-  const warehouseRemaining = Math.max(0, arrivals + returnedFromClients - warehouseReturns - deliveredToClients - writtenOff);
+  const warehouseRemaining = Math.max(0, arrivals - warehouseReturns - writtenOff);
   const totalTracked = warehouseRemaining + clientBottles + writtenOff;
 
   return {
