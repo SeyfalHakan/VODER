@@ -14,6 +14,7 @@ const memoryShifts = [];
 const memoryWarehouse = [];
 const memoryWarehousePayments = [];
 let supabaseAdminClientPromise = null;
+const SUPABASE_TIMEOUT_MS = 25000;
 const fixedAuditMonthlyExpenses = [
   { name: "Аренда", amount: 105000 },
   { name: "Внутренний сервис", amount: 45000 }
@@ -288,7 +289,7 @@ const server = createServer(async (request, response) => {
         supabaseUrlConfigured: Boolean(env.url),
         supabaseServiceKeyConfigured: Boolean(env.key),
         supabaseReady: Boolean(env.url && env.key),
-        version: "f5d88a4-warehouse-recalc"
+        version: "stable-timeout-retry-20260703"
       })
     );
     return;
@@ -392,6 +393,7 @@ async function saveSale(body) {
   const employeeName = employeeDisplayName(body.employeeName);
   const shiftId = String(body.shiftId ?? "").trim();
   const coolerStatus = normalizeCoolerStatus(body.coolerStatus);
+  const requestId = normalizeUuid(body.clientRequestId) ?? crypto.randomUUID();
   const destinationName =
     saleChannel === "pavilion" ? String(body.pavilionCode ?? "").trim() : String(body.destinationName ?? "").trim();
 
@@ -415,7 +417,7 @@ async function saveSale(body) {
   }
 
   const payload = {
-    id: crypto.randomUUID(),
+    id: requestId,
     report_date: moscowDate(),
     employee_name: employeeName,
     sale_channel: saleChannel,
@@ -435,6 +437,8 @@ async function saveSale(body) {
 
   const supabase = await createSupabaseAdminClient();
   if (!supabase) {
+    const existing = memorySales.find((row) => row.id === payload.id);
+    if (existing) return { status: 200, body: { ok: true, demo: true, duplicate: true, payload: existing } };
     memorySales.push(payload);
     console.log("[mobile-demo-save]", payload);
     return { status: 200, body: { ok: true, demo: true, payload } };
@@ -442,6 +446,7 @@ async function saveSale(body) {
 
   const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
   const { error } = await supabase.from("shipments").insert(cleanPayload);
+  if (error?.code === "23505") return { status: 200, body: { ok: true, demo: false, duplicate: true, payload: cleanPayload } };
   if (error) return { status: 500, body: { error: error.message } };
   return { status: 200, body: { ok: true, demo: false, payload: cleanPayload } };
 }
@@ -682,11 +687,11 @@ async function buildWarehouseDebt(fromInput, toInput) {
   let sales = memorySales.filter((row) => inPeriod(row.report_date, from, to));
   if (supabase) {
     const [arrivalsResult, returnsResult, writeoffsResult, paymentsResult, salesResult] = await Promise.all([
-      supabase.from("stock_arrivals").select("*").gte("report_date", from).lte("report_date", to),
-      supabase.from("remaining_stock_reports").select("*").gte("report_date", from).lte("report_date", to),
-      supabase.from("defective_write_offs").select("*").gte("report_date", from).lte("report_date", to),
-      supabase.from("warehouse_payments").select("*").gte("report_date", from).lte("report_date", to),
-      supabase.from("shipments").select("*").gte("report_date", from).lte("report_date", to)
+      supabase.from("stock_arrivals").select("quantity_received").gte("report_date", from).lte("report_date", to),
+      supabase.from("remaining_stock_reports").select("remaining_quantity").gte("report_date", from).lte("report_date", to),
+      supabase.from("defective_write_offs").select("defective_quantity").gte("report_date", from).lte("report_date", to),
+      supabase.from("warehouse_payments").select("cash_amount,transfer_amount").gte("report_date", from).lte("report_date", to),
+      supabase.from("shipments").select("quantity_sold,quantity_returned").gte("report_date", from).lte("report_date", to)
     ]);
     if (arrivalsResult.error) return { status: 500, body: { error: arrivalsResult.error.message } };
     if (returnsResult.error) return { status: 500, body: { error: returnsResult.error.message } };
@@ -1111,10 +1116,10 @@ async function buildAssets() {
 
   if (supabase) {
     const [salesResult, defectsResult, remainsResult, arrivalsResult] = await Promise.all([
-      supabase.from("shipments").select("*"),
-      supabase.from("defective_write_offs").select("*"),
-      supabase.from("remaining_stock_reports").select("*"),
-      supabase.from("stock_arrivals").select("*")
+      supabase.from("shipments").select("quantity_delivered,quantity_returned"),
+      supabase.from("defective_write_offs").select("defective_quantity"),
+      supabase.from("remaining_stock_reports").select("remaining_quantity"),
+      supabase.from("stock_arrivals").select("quantity_received")
     ]);
     if (salesResult.error) return { status: 500, body: { error: salesResult.error.message } };
     if (defectsResult.error) return { status: 500, body: { error: defectsResult.error.message } };
@@ -1264,10 +1269,27 @@ async function createSupabaseAdminClient() {
   supabaseAdminClientPromise ??= import("@supabase/supabase-js").then(({ createClient }) =>
     createClient(url, key, {
       auth: { persistSession: false, autoRefreshToken: false },
-      global: { headers: { "x-application-name": "voder-mobile" } }
+      global: { headers: { "x-application-name": "voder-mobile" }, fetch: fetchWithTimeout }
     })
   );
   return supabaseAdminClientPromise;
+}
+
+async function fetchWithTimeout(input, init = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SUPABASE_TIMEOUT_MS);
+  const upstreamSignal = init.signal;
+  const abortFromUpstream = () => controller.abort();
+
+  if (upstreamSignal?.aborted) controller.abort();
+  upstreamSignal?.addEventListener?.("abort", abortFromUpstream, { once: true });
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+    upstreamSignal?.removeEventListener?.("abort", abortFromUpstream);
+  }
 }
 
 function getSupabaseEnv() {
@@ -1330,6 +1352,13 @@ function normalizeDate(value) {
   if (!value) return null;
   const match = String(value).match(/^\d{4}-\d{2}-\d{2}$/);
   return match ? String(value) : null;
+}
+
+function normalizeUuid(value) {
+  const text = String(value ?? "").trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text)
+    ? text
+    : null;
 }
 
 function inPeriod(date, from, to) {
@@ -1706,8 +1735,16 @@ let destinationSuggestTimer = null;
 let coolerRows = [];
 let coolersExpanded = false;
 let coolerFilterTimer = null;
-const MUTATION_TIMEOUT_MS = 45000;
+const MUTATION_TIMEOUT_MS = 65000;
 const $ = (id) => document.getElementById(id);
+function wait(ms){return new Promise((resolve)=>setTimeout(resolve, ms))}
+function makeRequestId(){
+  if(window.crypto?.randomUUID) return window.crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,(char)=>{
+    const value = Math.random() * 16 | 0;
+    return (char === "x" ? value : (value & 0x3 | 0x8)).toString(16);
+  });
+}
 function readStoredShift(){
   try {
     const raw = localStorage.getItem("waterOpsShift");
@@ -1762,17 +1799,27 @@ function showAppError(error){
 window.addEventListener("error", (event)=>showAppError(event.error || event.message));
 window.addEventListener("unhandledrejection", (event)=>showAppError(event.reason || "Ошибка сети"));
 async function requestJson(url, options = {}, timeoutMs = 12000){
-  const controller = new AbortController();
-  const timer = setTimeout(()=>controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { cache: "no-store", ...options, signal: controller.signal});
-    const data = await res.json().catch(()=>({ error: "Пустой ответ сервера" }));
-    return { res, data };
-  } catch (error) {
-    return { res: { ok: false }, data: { error: error?.name === "AbortError" ? "Сервер долго отвечает. Проверьте интернет и попробуйте еще раз." : "Нет связи с сервером" } };
-  } finally {
-    clearTimeout(timer);
+  const { retryOnTimeout = false, ...fetchOptions } = options;
+  const attempts = retryOnTimeout ? 2 : 1;
+  for(let attempt = 0; attempt < attempts; attempt += 1){
+    const controller = new AbortController();
+    const timer = setTimeout(()=>controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { cache: "no-store", ...fetchOptions, signal: controller.signal});
+      const data = await res.json().catch(()=>({ error: "Пустой ответ сервера" }));
+      return { res, data };
+    } catch (error) {
+      if(error?.name === "AbortError" && retryOnTimeout && attempt === 0){
+        clearTimeout(timer);
+        await wait(900);
+        continue;
+      }
+      return { res: { ok: false }, data: { error: error?.name === "AbortError" ? "Сервер долго отвечает. Проверьте интернет и попробуйте еще раз." : "Нет связи с сервером" } };
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  return { res: { ok: false }, data: { error: "Нет связи с сервером" } };
 }
 function warmServer(){
   requestJson("/api/mobile/health", {}, MUTATION_TIMEOUT_MS).catch(() => {});
@@ -2204,7 +2251,9 @@ $("form").onsubmit=async(e)=>{
     const orderSold = Number($("sold").value || 0);
     const orderReturned = Number($("returned").value || 0);
     const orderAmount = orderSold * unitPrice;
+    const clientRequestId = makeRequestId();
     const { res, data } = await requestJson("/api/mobile/sales",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({
+      clientRequestId,
       saleChannel,
       destinationName:saleChannel==="warehouse"?orderDestination:undefined,
       pavilionCode:saleChannel==="pavilion"?orderDestination:undefined,
@@ -2215,7 +2264,7 @@ $("form").onsubmit=async(e)=>{
       shiftId: currentShift ? currentShift.id : "",
       quantityDelivered:orderSold,
       quantityReturned:orderReturned
-    })}, MUTATION_TIMEOUT_MS);
+    }), retryOnTimeout: true}, MUTATION_TIMEOUT_MS);
     message.hidden=res.ok;message.className=res.ok?"message ok":"message err";
     message.textContent=res.ok?"":(data.error || "Не удалось сохранить");
     if(res.ok){
