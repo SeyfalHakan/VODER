@@ -289,7 +289,7 @@ const server = createServer(async (request, response) => {
         supabaseUrlConfigured: Boolean(env.url),
         supabaseServiceKeyConfigured: Boolean(env.key),
         supabaseReady: Boolean(env.url && env.key),
-        version: "stable-timeout-retry-20260703"
+        version: "coolers-profit-home-20260707"
       })
     );
     return;
@@ -439,16 +439,56 @@ async function saveSale(body) {
   if (!supabase) {
     const existing = memorySales.find((row) => row.id === payload.id);
     if (existing) return { status: 200, body: { ok: true, demo: true, duplicate: true, payload: existing } };
+    const recentDuplicate = findRecentDuplicateSale(memorySales, payload);
+    if (recentDuplicate) return { status: 200, body: { ok: true, demo: true, duplicate: true, payload: recentDuplicate } };
     memorySales.push(payload);
     console.log("[mobile-demo-save]", payload);
     return { status: 200, body: { ok: true, demo: true, payload } };
   }
 
   const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
+  const recentDuplicate = await findRecentDuplicateSaleInSupabase(supabase, cleanPayload);
+  if (recentDuplicate) return { status: 200, body: { ok: true, demo: false, duplicate: true, payload: recentDuplicate } };
   const { error } = await supabase.from("shipments").insert(cleanPayload);
   if (error?.code === "23505") return { status: 200, body: { ok: true, demo: false, duplicate: true, payload: cleanPayload } };
   if (error) return { status: 500, body: { error: error.message } };
   return { status: 200, body: { ok: true, demo: false, payload: cleanPayload } };
+}
+
+function findRecentDuplicateSale(rows, payload) {
+  const createdAt = Date.parse(payload.created_at);
+  return rows.find((row) =>
+    row.report_date === payload.report_date &&
+    String(row.employee_name ?? "") === String(payload.employee_name ?? "") &&
+    String(row.sale_channel ?? "") === String(payload.sale_channel ?? "") &&
+    String(row.destination_name ?? "") === String(payload.destination_name ?? "") &&
+    Number(row.quantity_sold ?? 0) === Number(payload.quantity_sold ?? 0) &&
+    Number(row.quantity_returned ?? 0) === Number(payload.quantity_returned ?? 0) &&
+    Number(row.unit_price ?? 0) === Number(payload.unit_price ?? 0) &&
+    paymentKind(row) === paymentKind(payload) &&
+    coolerStatusFromRow(row) === coolerStatusFromRow(payload) &&
+    Math.abs(createdAt - Date.parse(row.created_at ?? 0)) <= 180000
+  );
+}
+
+async function findRecentDuplicateSaleInSupabase(supabase, payload) {
+  const since = new Date(Date.parse(payload.created_at) - 180000).toISOString();
+  const { data, error } = await supabase
+    .from("shipments")
+    .select("id,report_date,created_at,employee_name,sale_channel,destination_name,warehouse_name,pavilion_code,quantity_sold,quantity_returned,unit_price,cash_amount,comments")
+    .eq("report_date", payload.report_date)
+    .eq("employee_name", payload.employee_name)
+    .eq("sale_channel", payload.sale_channel)
+    .eq("destination_name", payload.destination_name)
+    .eq("quantity_sold", payload.quantity_sold)
+    .eq("quantity_returned", payload.quantity_returned)
+    .eq("unit_price", payload.unit_price)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  if (error) return null;
+  return findRecentDuplicateSale(data ?? [], payload) ?? null;
 }
 
 async function updateSale(id, body) {
@@ -1546,7 +1586,7 @@ function mobileHtml() {
     .boot-loader{background:#050b14!important}.loader-ring{border-color:rgba(255,255,255,.12)!important;border-top-color:#78aaff!important}
     .logged-out{background:#050b14!important}.logged-out:before{opacity:.74!important}.logged-out #showLoginButton,.logged-out #loginButton{background:linear-gradient(135deg,#3f7cff,#91bdff)!important;color:#fff!important;box-shadow:none!important}.logged-out #pinBlock{background:#08111f!important;border-color:rgba(130,160,205,.25)!important;box-shadow:none!important}
     .asset-line{background:#152236!important;border-color:rgba(130,160,205,.22)!important;box-shadow:none!important}.asset-line-warehouse{background:#69d8ff!important}.asset-line-client{background:#4f8cff!important}.asset-line-writeoff{background:#9a2340!important}
-    .suggestions{display:none!important}.recent-orders{display:grid;gap:7px;padding:10px;border:1px solid rgba(130,160,205,.18);border-radius:18px;background:#111c2d}.recent-orders.hidden{display:none!important}.recent-title{color:#a8b5c9;font-size:11px;font-weight:850;text-transform:uppercase}.recent-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid rgba(130,160,205,.12)}.recent-row:first-of-type{border-top:0}.recent-row b{font-size:13px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recent-row span{font-size:12px;color:#a8b5c9;white-space:nowrap}.recent-row small{display:block;margin-top:2px;color:#73849b;font-size:10px;font-weight:750}
+    .suggestions{display:none!important}.admin-home-logo{min-height:42vh;display:grid;place-items:center}.admin-home-logo img{width:min(42vw,180px);height:auto;filter:drop-shadow(0 24px 70px rgba(74,124,255,.34))}.asset-hidden{display:none!important}.cooler-btn{display:grid!important;place-items:center!important;gap:1px;font-size:19px!important;line-height:1!important}.cooler-btn small{display:block;font-size:7px;font-weight:950;letter-spacing:0;color:currentColor}.cooler-btn.our.active{background:linear-gradient(135deg,#16c784,#8bf5c7)!important;color:#04120b!important;border-color:rgba(139,245,199,.75)!important}.cooler-btn.not.active{background:linear-gradient(135deg,#cf2b4f,#ff8ba1)!important;color:#fff!important;border-color:rgba(255,139,161,.75)!important}.recent-orders{display:grid;gap:7px;padding:10px;border:1px solid rgba(130,160,205,.18);border-radius:18px;background:#111c2d}.recent-orders.hidden{display:none!important}.recent-title{color:#a8b5c9;font-size:11px;font-weight:850;text-transform:uppercase}.recent-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid rgba(130,160,205,.12)}.recent-row:first-of-type{border-top:0}.recent-row b{font-size:13px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recent-row span{font-size:12px;color:#a8b5c9;white-space:nowrap}.recent-row small{display:block;margin-top:2px;color:#73849b;font-size:10px;font-weight:750}
   </style>
 </head>
 <body>
@@ -1573,7 +1613,8 @@ function mobileHtml() {
       </div>
       <div id="homeLoggedIn" class="home-actions hidden">
         <section id="adminAssets" class="admin-only hidden">
-          <div class="report-box">
+          <div class="admin-home-logo"><img src="/icon.svg" alt="VODER" /></div>
+          <div class="report-box asset-hidden" hidden>
             <div class="report-line"><span>Активы бутылок</span><b id="assetTotal">0 шт.</b></div>
             <div class="asset-line"><span id="assetWarehouseLine" class="asset-line-warehouse"></span><span id="assetClientLine" class="asset-line-client"></span><span id="assetWriteoffLine" class="asset-line-writeoff"></span></div>
             <div class="asset-grid">
@@ -1599,7 +1640,7 @@ function mobileHtml() {
     <section class="card tabs"><div id="warehouse" class="tab">Склад</div><div id="pavilion" class="tab active">Павильон</div></section>
     <section id="warehouseMini" class="card work-kpi hidden"><div><span>📦 Продано бутылок</span><b id="miniBottles">0 шт.</b></div><div><span>💰 Расчет по 70</span><b id="miniEarning">0 руб.</b></div></section>
     <form id="form" class="card">
-      <div class="destination-grid"><label class="destination-field"><span id="destinationLabel">Номер павильона</span><input id="destination" type="text" inputmode="text" placeholder="Например: 12" autocomplete="off" autocorrect="off" spellcheck="false" required /><div id="destinationSuggestions" class="suggestions hidden"></div></label><button id="coolerOur" class="cooler-btn our active" type="button">💧</button><button id="coolerNot" class="cooler-btn not" type="button">💧</button></div>
+      <div class="destination-grid"><label class="destination-field"><span id="destinationLabel">Номер павильона</span><input id="destination" type="text" inputmode="text" placeholder="Например: 12" autocomplete="off" autocorrect="off" spellcheck="false" required /><div id="destinationSuggestions" class="suggestions hidden"></div></label><button id="coolerOur" class="cooler-btn our active" type="button">💧<small>НАШ</small></button><button id="coolerNot" class="cooler-btn not" type="button">💧<small>НЕ НАШ</small></button></div>
       <div class="quantity-grid">
         <label><span>Продал</span><input id="sold" inputmode="numeric" pattern="[0-9]*" placeholder="20" required /></label>
         <label id="returnedWrap"><span>Забрал</span><input id="returned" inputmode="numeric" pattern="[0-9]*" placeholder="3" /></label>
@@ -2721,7 +2762,7 @@ function renderProfitTable(data){
     '<div class="profit-card"><span>Расходы</span><b>'+money(data.expenseTotal)+'</b></div>'+
     '<div class="profit-card"><span>Расход бутылки 120</span><b>'+money(data.bottleCostTotal)+'</b></div>'+
     '<div class="profit-card"><span>Чистая прибыль</span><b>'+money(data.profit ?? data.factTotal)+'</b></div>'+
-    '<div class="profit-card"><span>💵 / 🏦</span><b>'+money(data.cashIncome)+' / '+money(data.transferIncome)+'</b></div>'+
+    '<div class="profit-card"><span>На руках 💵 / 🏦</span><b>'+money(data.cashBalance)+' / '+money(data.transferBalance)+'</b></div>'+
   '</div>';
 }
 function renderWarehouseDebtReport(data){
