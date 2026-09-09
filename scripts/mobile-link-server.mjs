@@ -1816,13 +1816,13 @@ function mobileHtml() {
   </style>
 </head>
 <body>
-<div id="bootLoader" class="boot-loader"><div class="boot-loader-card"><img src="/icon.svg?v=2" alt="VODER" /><div class="loader-ring"></div></div></div>
+<div id="bootLoader" class="boot-loader"><div class="boot-loader-card"><img src="/icon.svg?v=3" alt="VODER" /><div class="loader-ring"></div></div></div>
 <main><div class="app">
-  <header><div class="brand"><div class="logo"><img src="/icon.svg" alt="VODER" /></div><div><h1 class="app-title">VODER <span id="channelBadge" class="channel-badge hidden">Павильон</span></h1><p class="sub">Продажа бутылок 19 л</p></div></div><div class="pill" id="shiftStatus">Москва</div></header>
+  <header><div class="brand"><div class="logo"><img src="/icon.svg?v=3" alt="VODER" /></div><div><h1 class="app-title">VODER <span id="channelBadge" class="channel-badge hidden">Павильон</span></h1><p class="sub">Продажа бутылок 19 л</p></div></div><div class="pill" id="shiftStatus">Москва</div></header>
   <section id="homePage" class="page active">
     <div class="card panel">
-      <div class="home-splash-brand"><img src="/voder-logo.svg" alt="VODER" /></div>
-      <div class="brand home-panel-brand"><div class="logo"><img src="/icon.svg" alt="VODER" /></div><div><h1 id="homeTitle">Главная</h1><p class="sub" id="homeSubtitle">Войдите для начала работы.</p></div></div>
+      <div class="home-splash-brand"><img src="/voder-logo.svg?v=3" alt="VODER" /></div>
+      <div class="brand home-panel-brand"><div class="logo"><img src="/icon.svg?v=3" alt="VODER" /></div><div><h1 id="homeTitle">Главная</h1><p class="sub" id="homeSubtitle">Войдите для начала работы.</p></div></div>
       <div id="homeLoggedOut" class="home-actions">
         <button id="showLoginButton" class="submit" type="button">Вход</button>
         <div id="pinBlock" class="hidden">
@@ -1842,7 +1842,7 @@ function mobileHtml() {
       </div>
       <div id="homeLoggedIn" class="home-actions hidden">
         <section id="adminAssets" class="admin-only hidden">
-          <div class="admin-home-logo"><img src="/icon.svg" alt="VODER" /></div>
+          <div class="admin-home-logo"><img src="/icon.svg?v=3" alt="VODER" /></div>
           <div class="report-box asset-hidden" hidden>
             <div class="report-line"><span>Активы бутылок</span><b id="assetTotal">0 шт.</b></div>
             <div class="asset-line"><span id="assetWarehouseLine" class="asset-line-warehouse"></span><span id="assetClientLine" class="asset-line-client"></span><span id="assetWriteoffLine" class="asset-line-writeoff"></span></div>
