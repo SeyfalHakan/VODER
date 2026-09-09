@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
+import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { config } from "dotenv";
 
 config({ path: ".env.local" });
@@ -13,8 +14,11 @@ const memoryExpenses = [];
 const memoryShifts = [];
 const memoryWarehouse = [];
 const memoryWarehousePayments = [];
+const memoryUsers = [];
 let supabaseAdminClientPromise = null;
 const SUPABASE_TIMEOUT_MS = 25000;
+const MAX_EMPLOYEE_USERS = 6;
+const sessionSecret = process.env.MOBILE_SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || randomBytes(32).toString("hex");
 const fixedAuditMonthlyExpenses = [
   { name: "Аренда", amount: 105000 },
   { name: "Внутренний сервис", amount: 45000 }
@@ -79,7 +83,18 @@ const server = createServer(async (request, response) => {
   if (request.method === "POST" && url.pathname === "/api/mobile/login") {
     try {
       const body = JSON.parse(await readBody(request));
-      const result = loginByPassword(body.password);
+      const result = await loginByCredentials(body.username, body.password);
+      send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
+    } catch (error) {
+      send(response, 500, "application/json; charset=utf-8", JSON.stringify({ error: error.message }));
+    }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/mobile/register") {
+    try {
+      const body = JSON.parse(await readBody(request));
+      const result = await registerEmployee(body.username, body.password);
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
     } catch (error) {
       send(response, 500, "application/json; charset=utf-8", JSON.stringify({ error: error.message }));
@@ -90,6 +105,9 @@ const server = createServer(async (request, response) => {
   if (request.method === "POST" && url.pathname === "/api/mobile/sales") {
     try {
       const body = JSON.parse(await readBody(request));
+      const session = readRequestSession(request);
+      if (!session) return sendJsonError(response, 401, "Войдите в аккаунт заново");
+      body.employeeName = session.username;
       const result = await saveSale(body);
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
     } catch (error) {
@@ -100,6 +118,8 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "PATCH" && url.pathname.startsWith("/api/mobile/sales/")) {
     try {
+      const session = readRequestSession(request);
+      if (!session || session.role !== "admin") return sendJsonError(response, 403, "Доступно только администратору");
       const id = decodeURIComponent(url.pathname.split("/").pop() ?? "");
       const body = JSON.parse(await readBody(request));
       const result = await updateSale(id, body);
@@ -112,6 +132,8 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "DELETE" && url.pathname.startsWith("/api/mobile/sales/")) {
     try {
+      const session = readRequestSession(request);
+      if (!session || session.role !== "admin") return sendJsonError(response, 403, "Доступно только администратору");
       const id = decodeURIComponent(url.pathname.split("/").pop() ?? "");
       const result = await deleteSale(id);
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
@@ -123,8 +145,11 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "POST" && url.pathname === "/api/mobile/shift/open") {
     try {
+      const session = readRequestSession(request);
+      if (!session || session.role !== "employee") return sendJsonError(response, 403, "Войдите как сотрудник");
       const bodyText = await readBody(request);
       const body = bodyText ? JSON.parse(bodyText) : {};
+      body.employeeName = session.username;
       const result = await openShift(body);
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
     } catch (error) {
@@ -135,7 +160,11 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "POST" && url.pathname === "/api/mobile/shift/close") {
     try {
+      const session = readRequestSession(request);
+      if (!session || session.role !== "employee") return sendJsonError(response, 403, "Войдите как сотрудник");
       const body = JSON.parse(await readBody(request));
+      body.employeeName = session.username;
+      body.role = "employee";
       const shiftId = String(body.shiftId ?? "");
       const fallbackShift = body.shift && typeof body.shift === "object" ? body.shift : null;
       const shift =
@@ -168,6 +197,9 @@ const server = createServer(async (request, response) => {
   if (request.method === "POST" && url.pathname === "/api/mobile/expenses") {
     try {
       const body = JSON.parse(await readBody(request));
+      const session = readRequestSession(request);
+      if (!session) return sendJsonError(response, 401, "Войдите в аккаунт заново");
+      body.employeeName = session.username;
       const result = await saveExpense(body);
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
     } catch (error) {
@@ -178,6 +210,8 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "POST" && url.pathname === "/api/mobile/warehouse") {
     try {
+      const session = readRequestSession(request);
+      if (!session || session.role !== "admin") return sendJsonError(response, 403, "Доступно только администратору");
       const body = JSON.parse(await readBody(request));
       const result = await saveWarehouseEntry(body);
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
@@ -189,6 +223,8 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "POST" && url.pathname === "/api/mobile/warehouse/payment") {
     try {
+      const session = readRequestSession(request);
+      if (!session || session.role !== "admin") return sendJsonError(response, 403, "Доступно только администратору");
       const body = JSON.parse(await readBody(request));
       const result = await saveWarehousePayment(body);
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
@@ -200,6 +236,8 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "GET" && url.pathname === "/api/mobile/warehouse/debt") {
     try {
+      const session = readRequestSession(request);
+      if (!session || session.role !== "admin") return sendJsonError(response, 403, "Доступно только администратору");
       const result = await buildWarehouseDebt(url.searchParams.get("from"), url.searchParams.get("to"));
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
     } catch (error) {
@@ -210,11 +248,13 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "GET" && url.pathname === "/api/mobile/report") {
     try {
+      const session = readRequestSession(request);
+      if (!session) return sendJsonError(response, 401, "Войдите в аккаунт заново");
       const result = await buildReport(
         url.searchParams.get("from"),
         url.searchParams.get("to"),
-        url.searchParams.get("role"),
-        url.searchParams.get("employeeName"),
+        session.role,
+        session.username,
         url.searchParams.get("shiftId"),
         url.searchParams.get("filter"),
         url.searchParams.get("payment"),
@@ -229,6 +269,8 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "GET" && url.pathname === "/api/mobile/audit") {
     try {
+      const session = readRequestSession(request);
+      if (!session || session.role !== "admin") return sendJsonError(response, 403, "Доступно только администратору");
       const result = await buildAudit(url.searchParams.get("from"), url.searchParams.get("to"));
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
     } catch (error) {
@@ -239,6 +281,8 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "GET" && url.pathname === "/api/mobile/assets") {
     try {
+      const session = readRequestSession(request);
+      if (!session || session.role !== "admin") return sendJsonError(response, 403, "Доступно только администратору");
       const result = await buildAssets();
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
     } catch (error) {
@@ -249,6 +293,7 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "GET" && url.pathname === "/api/mobile/coolers") {
     try {
+      if (!readRequestSession(request)) return sendJsonError(response, 401, "Войдите в аккаунт заново");
       const result = await buildCoolerRegistry(url.searchParams.get("filter"));
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
     } catch (error) {
@@ -259,6 +304,7 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "GET" && url.pathname === "/api/mobile/destinations") {
     try {
+      if (!readRequestSession(request)) return sendJsonError(response, 401, "Войдите в аккаунт заново");
       const result = await buildDestinationSuggestions(url.searchParams.get("q"), url.searchParams.get("channel"));
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
     } catch (error) {
@@ -269,6 +315,8 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "POST" && url.pathname === "/api/mobile/reset-data") {
     try {
+      const session = readRequestSession(request);
+      if (!session || session.role !== "admin") return sendJsonError(response, 403, "Доступно только администратору");
       const body = JSON.parse(await readBody(request));
       const result = await resetUserData(body.password);
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
@@ -537,7 +585,7 @@ async function deleteSale(id) {
 
 async function resetUserData(passwordInput) {
   const password = String(passwordInput ?? "").trim();
-  if (password !== "1996") return { status: 401, body: { error: "Неверный пароль" } };
+  if (password !== "6969") return { status: 401, body: { error: "Неверный пароль" } };
 
   memorySales.splice(0);
   memoryExpenses.splice(0);
@@ -567,17 +615,145 @@ async function resetUserData(passwordInput) {
   return { status: 200, body: { ok: true, demo: false } };
 }
 
-function loginByPassword(passwordInput) {
-  const password = String(passwordInput ?? "").trim();
-  const users = {
-    "1111": { role: "employee", employeeName: "Сотрудник 1", employeeKind: "pavilion", saleChannel: "pavilion" },
-    "2222": { role: "employee", employeeName: "Сотрудник 2", employeeKind: "pavilion", saleChannel: "pavilion" },
-    "0000": { role: "employee", employeeName: "Склад", employeeKind: "warehouse", saleChannel: "warehouse" },
-    "1996": { role: "admin", employeeName: "Админ", employeeKind: "admin", saleChannel: "pavilion" }
+function normalizeUsername(value) {
+  return String(value ?? "").trim().toUpperCase();
+}
+
+function validUsername(username) {
+  return /^[A-Z][A-Z0-9_]{2,19}$/.test(username);
+}
+
+function validPin(pin) {
+  return /^\d{4}$/.test(String(pin ?? ""));
+}
+
+function hashPin(pin, salt = randomBytes(16).toString("hex")) {
+  return `${salt}:${scryptSync(String(pin), salt, 32).toString("hex")}`;
+}
+
+function verifyPin(pin, storedHash) {
+  const [salt, expectedHex] = String(storedHash ?? "").split(":");
+  if (!salt || !expectedHex) return false;
+  const actual = scryptSync(String(pin), salt, 32);
+  const expected = Buffer.from(expectedHex, "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function createSession(user) {
+  const payload = Buffer.from(JSON.stringify({
+    username: user.username,
+    role: user.role,
+    employeeKind: user.employee_kind,
+    expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000
+  })).toString("base64url");
+  const signature = createHmac("sha256", sessionSecret).update(payload).digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+function readRequestSession(request) {
+  const authorization = String(request.headers.authorization ?? "");
+  const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) return null;
+  const expected = createHmac("sha256", sessionSecret).update(payload).digest();
+  let actual;
+  try {
+    actual = Buffer.from(signature, "base64url");
+  } catch {
+    return null;
+  }
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
+  try {
+    const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!session.username || !["admin", "employee"].includes(session.role) || Number(session.expiresAt) <= Date.now()) return null;
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+function publicSession(user) {
+  const employeeKind = user.employee_kind || (user.role === "admin" ? "admin" : "pavilion");
+  return {
+    ok: true,
+    role: user.role,
+    employeeName: user.username,
+    employeeKind,
+    saleChannel: employeeKind === "warehouse" ? "warehouse" : "pavilion",
+    token: createSession(user)
   };
-  const user = users[password];
-  if (!user) return { status: 401, body: { error: "Неверный пароль" } };
-  return { status: 200, body: { ok: true, ...user } };
+}
+
+async function loginByCredentials(usernameInput, passwordInput) {
+  const username = normalizeUsername(usernameInput);
+  const pin = String(passwordInput ?? "").trim();
+  if (!validUsername(username) || !validPin(pin)) {
+    return { status: 401, body: { error: "Неверный логин или PIN" } };
+  }
+  if (username === "ADMIN") {
+    if (pin !== "6969") return { status: 401, body: { error: "Неверный логин или PIN" } };
+    return { status: 200, body: publicSession({ username: "ADMIN", role: "admin", employee_kind: "admin" }) };
+  }
+
+  const supabase = await createSupabaseAdminClient();
+  let user;
+  if (!supabase) {
+    user = memoryUsers.find((item) => item.username === username && item.is_active !== false);
+  } else {
+    const { data, error } = await supabase
+      .from("mobile_users")
+      .select("username,pin_hash,role,employee_kind,is_active")
+      .eq("username", username)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (error) return { status: 500, body: { error: "Таблица пользователей ещё не подключена" } };
+    user = data;
+  }
+  if (!user || !verifyPin(pin, user.pin_hash)) {
+    return { status: 401, body: { error: "Неверный логин или PIN" } };
+  }
+  return { status: 200, body: publicSession(user) };
+}
+
+async function registerEmployee(usernameInput, passwordInput) {
+  const username = normalizeUsername(usernameInput);
+  const pin = String(passwordInput ?? "").trim();
+  if (!validUsername(username) || username === "ADMIN") {
+    return { status: 400, body: { error: "Логин: 3–20 латинских букв, цифр или _" } };
+  }
+  if (!validPin(pin)) return { status: 400, body: { error: "PIN должен состоять ровно из 4 цифр" } };
+
+  const user = {
+    username,
+    pin_hash: hashPin(pin),
+    role: "employee",
+    employee_kind: "pavilion",
+    is_active: true
+  };
+  const supabase = await createSupabaseAdminClient();
+  if (!supabase) {
+    if (memoryUsers.some((item) => item.username === username)) return { status: 409, body: { error: "Такой логин уже занят" } };
+    if (memoryUsers.length >= MAX_EMPLOYEE_USERS) return { status: 409, body: { error: "Уже зарегистрировано 6 сотрудников" } };
+    memoryUsers.push(user);
+    return { status: 201, body: publicSession(user) };
+  }
+
+  const { count, error: countError } = await supabase
+    .from("mobile_users")
+    .select("id", { count: "exact", head: true })
+    .eq("role", "employee")
+    .eq("is_active", true);
+  if (countError) return { status: 500, body: { error: "Не удалось проверить список пользователей" } };
+  if (Number(count ?? 0) >= MAX_EMPLOYEE_USERS) return { status: 409, body: { error: "Уже зарегистрировано 6 сотрудников" } };
+
+  const { data, error } = await supabase
+    .from("mobile_users")
+    .insert(user)
+    .select("username,pin_hash,role,employee_kind,is_active")
+    .single();
+  if (error?.code === "23505") return { status: 409, body: { error: "Такой логин уже занят" } };
+  if (error) return { status: 500, body: { error: error.message } };
+  return { status: 201, body: publicSession(data) };
 }
 
 async function saveExpense(body) {
@@ -912,9 +1088,11 @@ function buildClientRows(sales, writeoffs) {
   const groups = {};
   for (const row of sales) {
     const name = clientName(row);
-    const key = `${String(row.sale_channel ?? "pavilion")}__${name}__${paymentKind(row)}__${coolerStatusFromRow(row)}`;
+    const employeeName = String(row.employee_name ?? "").trim() || "Старые данные";
+    const key = `${String(row.sale_channel ?? "pavilion")}__${name}__${paymentKind(row)}__${coolerStatusFromRow(row)}__${employeeName}`;
     groups[key] ??= {
       name,
+      employeeName,
       channel: String(row.sale_channel ?? "pavilion"),
       paymentType: paymentKind(row),
       coolerStatus: coolerStatusFromRow(row),
@@ -935,6 +1113,7 @@ function buildClientRows(sales, writeoffs) {
     const key = `warehouse__${name}__writeoff__none`;
     groups[key] ??= {
       name,
+      employeeName: String(row.employee_name ?? "").trim() || "Склад",
       channel: "warehouse",
       paymentType: "",
       coolerStatus: "",
@@ -1358,6 +1537,10 @@ function send(response, status, contentType, body) {
   response.end(body);
 }
 
+function sendJsonError(response, status, error) {
+  send(response, status, "application/json; charset=utf-8", JSON.stringify({ error }));
+}
+
 function sendBinary(response, status, contentType, body) {
   response.writeHead(status, {
     "content-type": contentType,
@@ -1587,6 +1770,7 @@ function mobileHtml() {
     .logged-out{background:#050b14!important}.logged-out:before{opacity:.74!important}.logged-out #showLoginButton,.logged-out #loginButton{background:linear-gradient(135deg,#3f7cff,#91bdff)!important;color:#fff!important;box-shadow:none!important}.logged-out #pinBlock{background:#08111f!important;border-color:rgba(130,160,205,.25)!important;box-shadow:none!important}
     .asset-line{background:#152236!important;border-color:rgba(130,160,205,.22)!important;box-shadow:none!important}.asset-line-warehouse{background:#69d8ff!important}.asset-line-client{background:#4f8cff!important}.asset-line-writeoff{background:#9a2340!important}
     .suggestions{display:none!important}.admin-home-logo{min-height:42vh;display:grid;place-items:center}.admin-home-logo img{width:min(42vw,180px);height:auto;filter:drop-shadow(0 24px 70px rgba(74,124,255,.34))}.asset-hidden{display:none!important}.cooler-btn{display:grid!important;place-items:center!important;gap:1px;font-size:19px!important;line-height:1!important}.cooler-btn small{display:block;font-size:7px;font-weight:950;letter-spacing:0;color:currentColor}.cooler-btn.our.active{background:linear-gradient(135deg,#16c784,#8bf5c7)!important;color:#04120b!important;border-color:rgba(139,245,199,.75)!important}.cooler-btn.not.active{background:linear-gradient(135deg,#cf2b4f,#ff8ba1)!important;color:#fff!important;border-color:rgba(255,139,161,.75)!important}.recent-orders{display:grid;gap:7px;padding:10px;border:1px solid rgba(130,160,205,.18);border-radius:18px;background:#111c2d}.recent-orders.hidden{display:none!important}.recent-title{color:#a8b5c9;font-size:11px;font-weight:850;text-transform:uppercase}.recent-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid rgba(130,160,205,.12)}.recent-row:first-of-type{border-top:0}.recent-row b{font-size:13px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recent-row span{font-size:12px;color:#a8b5c9;white-space:nowrap}.recent-row small{display:block;margin-top:2px;color:#73849b;font-size:10px;font-weight:750}
+    .auth-mode{display:grid;grid-template-columns:1fr 1fr;gap:7px}.auth-mode button{height:42px;border:1px solid rgba(130,160,205,.22);border-radius:14px;background:#111c2d;color:#a8b5c9;font-weight:850}.auth-mode button.active{background:#3f7cff;color:#fff;border-color:#76a8ff}.auth-note{text-align:center}
   </style>
 </head>
 <body>
@@ -1600,14 +1784,17 @@ function mobileHtml() {
       <div id="homeLoggedOut" class="home-actions">
         <button id="showLoginButton" class="submit" type="button">Вход</button>
         <div id="pinBlock" class="hidden">
-          <label><span>Пароль</span></label>
+          <div class="auth-mode"><button id="authLoginMode" class="active" type="button">Вход</button><button id="authRegisterMode" type="button">Регистрация</button></div>
+          <label><span>Логин латиницей</span><input id="loginUsername" type="text" maxlength="20" autocomplete="username" autocapitalize="characters" spellcheck="false" placeholder="IVAN" /></label>
+          <label><span>PIN-код</span></label>
           <div class="pin-grid">
-            <input class="pin" inputmode="numeric" maxlength="1" />
-            <input class="pin" inputmode="numeric" maxlength="1" />
-            <input class="pin" inputmode="numeric" maxlength="1" />
-            <input class="pin" inputmode="numeric" maxlength="1" />
+            <input class="pin" inputmode="numeric" maxlength="1" autocomplete="off" />
+            <input class="pin" inputmode="numeric" maxlength="1" autocomplete="off" />
+            <input class="pin" inputmode="numeric" maxlength="1" autocomplete="off" />
+            <input class="pin" inputmode="numeric" maxlength="1" autocomplete="off" />
           </div>
           <button id="loginButton" class="submit" type="button">Войти</button>
+          <p id="authNote" class="hint auth-note">Администратор входит отдельно. Можно зарегистрировать до 6 сотрудников.</p>
           <p id="loginMessage" class="hint" hidden></p>
         </div>
       </div>
@@ -1765,6 +1952,16 @@ let coolerStatus = "our";
 let appRole = localStorage.getItem("waterOpsRole") || "";
 let appEmployee = localStorage.getItem("waterOpsEmployee") || "";
 let employeeKind = localStorage.getItem("waterOpsEmployeeKind") || "pavilion";
+let authToken = localStorage.getItem("waterOpsAuthToken") || "";
+let authMode = "login";
+if(appRole && !authToken){
+  appRole="";
+  appEmployee="";
+  employeeKind="pavilion";
+  localStorage.removeItem("waterOpsRole");
+  localStorage.removeItem("waterOpsEmployee");
+  localStorage.removeItem("waterOpsEmployeeKind");
+}
 let currentShift = readStoredShift();
 let lastClosedReport = localStorage.getItem("waterOpsLastClosedReport") || "";
 let lastReportData = null;
@@ -1841,6 +2038,9 @@ window.addEventListener("error", (event)=>showAppError(event.error || event.mess
 window.addEventListener("unhandledrejection", (event)=>showAppError(event.reason || "Ошибка сети"));
 async function requestJson(url, options = {}, timeoutMs = 12000){
   const { retryOnTimeout = false, ...fetchOptions } = options;
+  const headers = new Headers(fetchOptions.headers || {});
+  if(authToken) headers.set("authorization", "Bearer "+authToken);
+  fetchOptions.headers = headers;
   const attempts = retryOnTimeout ? 2 : 1;
   for(let attempt = 0; attempt < attempts; attempt += 1){
     const controller = new AbortController();
@@ -1861,6 +2061,11 @@ async function requestJson(url, options = {}, timeoutMs = 12000){
     }
   }
   return { res: { ok: false }, data: { error: "Нет связи с сервером" } };
+}
+function authHeaders(headers = {}){
+  const result = new Headers(headers);
+  if(authToken) result.set("authorization", "Bearer "+authToken);
+  return result;
 }
 function warmServer(){
   requestJson("/api/mobile/health", {}, MUTATION_TIMEOUT_MS).catch(() => {});
@@ -1891,7 +2096,7 @@ function applyRoleState(){
   $("reportFromWrap").classList.toggle("hidden", appRole === "employee");
   $("reportToWrap").classList.toggle("hidden", appRole === "employee");
   $("reportFilterWrap").classList.toggle("hidden", appRole !== "admin");
-  $("reportEditButton").classList.toggle("hidden", !["employee","admin"].includes(appRole) || !lastReportData || !lastReportData.salesRows || !lastReportData.salesRows.length);
+  $("reportEditButton").classList.toggle("hidden", appRole !== "admin" || !lastReportData || !lastReportData.salesRows || !lastReportData.salesRows.length);
   $("employeeShiftInfo").classList.toggle("hidden", appRole !== "employee");
   $("reportButton").textContent = appRole === "employee" ? "РАССЧИТАТЬ" : "Расчет за период";
   document.querySelectorAll(".auth-only").forEach((node)=>node.classList.toggle("hidden", !loggedIn));
@@ -2082,7 +2287,22 @@ $("showLoginButton").onclick=()=>{
   $("pinBlock").classList.remove("hidden");
   $("loginMessage").hidden=true;
   $("loginMessage").textContent="";
-  document.querySelector(".pin").focus();
+  $("loginUsername").focus();
+};
+function setAuthMode(mode){
+  authMode = mode;
+  $("authLoginMode").classList.toggle("active", mode === "login");
+  $("authRegisterMode").classList.toggle("active", mode === "register");
+  $("loginButton").textContent = mode === "login" ? "Войти" : "Создать аккаунт";
+  $("authNote").textContent = mode === "login"
+    ? "Для администратора: ADMIN. Сотрудники входят под своим логином."
+    : "Логин: латинские буквы, цифры или _. PIN: ровно 4 цифры.";
+  $("loginMessage").hidden = true;
+}
+$("authLoginMode").onclick=()=>setAuthMode("login");
+$("authRegisterMode").onclick=()=>setAuthMode("register");
+$("loginUsername").oninput=()=>{
+  $("loginUsername").value=$("loginUsername").value.replace(/[^a-z0-9_]/gi,"").toUpperCase().slice(0,20);
 };
 document.querySelectorAll(".pin").forEach((input, index, inputs)=>{
   input.oninput=()=>{
@@ -2094,9 +2314,17 @@ document.querySelectorAll(".pin").forEach((input, index, inputs)=>{
   };
 });
 $("loginButton").onclick=async()=>{
+  const username = $("loginUsername").value.trim().toUpperCase();
   const password = Array.from(document.querySelectorAll(".pin")).map((input)=>input.value).join("");
+  if(!/^[A-Z][A-Z0-9_]{2,19}$/.test(username) || !/^\\d{4}$/.test(password)){
+    $("loginMessage").hidden=false;
+    $("loginMessage").className="message err";
+    $("loginMessage").textContent="Введите латинский логин и PIN из 4 цифр";
+    return;
+  }
   $("loginButton").disabled=true;
-  const { res: response, data } = await requestJson("/api/mobile/login",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({password})});
+  const endpoint = authMode === "register" ? "/api/mobile/register" : "/api/mobile/login";
+  const { res: response, data } = await requestJson(endpoint,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({username,password})});
   if(!response.ok){
     $("loginMessage").hidden=false;
     $("loginMessage").className="message err";
@@ -2108,12 +2336,16 @@ $("loginButton").onclick=async()=>{
   appEmployee = data.employeeName;
   employeeKind = data.employeeKind;
   saleChannel = data.saleChannel;
+  authToken = data.token;
   localStorage.setItem("waterOpsRole", appRole);
   localStorage.setItem("waterOpsEmployee", appEmployee);
   localStorage.setItem("waterOpsEmployeeKind", employeeKind);
+  localStorage.setItem("waterOpsAuthToken", authToken);
+  $("loginUsername").value="";
   document.querySelectorAll(".pin").forEach((input)=>input.value="");
   $("pinBlock").classList.add("hidden");
   $("showLoginButton").classList.remove("hidden");
+  setAuthMode("login");
   applyShiftState();
   render();
   if (appRole === "employee") showPage("work");
@@ -2124,10 +2356,12 @@ $("logoutButton").onclick=()=>{
   appRole="";
   appEmployee="";
   employeeKind="pavilion";
+  authToken="";
   currentShift=null;
   localStorage.removeItem("waterOpsRole");
   localStorage.removeItem("waterOpsEmployee");
   localStorage.removeItem("waterOpsEmployeeKind");
+  localStorage.removeItem("waterOpsAuthToken");
   localStorage.removeItem("waterOpsShift");
   localStorage.removeItem("waterOpsLastClosedReport");
   lastClosedReport="";
@@ -2148,7 +2382,7 @@ $("resetDataButton").onclick=async()=>{
   $("resetDataMessage").textContent = "";
   const res = await fetch("/api/mobile/reset-data", {
     method: "POST",
-    headers: {"content-type":"application/json"},
+    headers: authHeaders({"content-type":"application/json"}),
     body: JSON.stringify({ password })
   });
   const data = await res.json();
@@ -2206,7 +2440,7 @@ async function closeCurrentShift(){
   }
   if(!confirm("Закрыть смену и показать итог?")) return;
   $("reportCloseShiftButton").disabled=true;$("reportCloseShiftButton").textContent="...";
-  const res=await fetch("/api/mobile/shift/close",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({shiftId:currentShift.id, shift: currentShift, role: appRole, employeeName: appEmployee})});
+  const res=await fetch("/api/mobile/shift/close",{method:"POST",headers:authHeaders({"content-type":"application/json"}),body:JSON.stringify({shiftId:currentShift.id, shift: currentShift, role: appRole, employeeName: appEmployee})});
   const data=await res.json();
   if(res.ok){
     localStorage.removeItem("waterOpsShift");
@@ -2456,7 +2690,7 @@ async function calculateReport(){
       $("reportBox").hidden=false;
       const periodLine = currentReportPrefix(data);
       $("reportBox").innerHTML = appRole === "admin" ? renderAdminReport(data, periodLine) : renderEmployeeReport(data, periodLine, false);
-      $("reportEditButton").classList.toggle("hidden", !["employee","admin"].includes(appRole) || !(data.salesRows || []).length);
+      $("reportEditButton").classList.toggle("hidden", appRole !== "admin" || !(data.salesRows || []).length);
     }
   } finally {
     $("reportButton").disabled=false;$("reportButton").textContent=appRole==="employee"?"РАССЧИТАТЬ":"Расчет за период";
@@ -2515,7 +2749,7 @@ $("auditButton").onclick=async()=>{
   $("auditMessage").hidden=true;
   const from=$("auditFrom").value;
   const to=$("auditTo").value || from;
-  const res=await fetch("/api/mobile/audit?from="+encodeURIComponent(from)+"&to="+encodeURIComponent(to));
+  const res=await fetch("/api/mobile/audit?from="+encodeURIComponent(from)+"&to="+encodeURIComponent(to),{headers:authHeaders()});
   const data=await res.json();
   if(!res.ok){
     $("auditMessage").hidden=false;$("auditMessage").className="message err";$("auditMessage").textContent=data.error;
@@ -2581,7 +2815,7 @@ async function saveReportEdits(){
     const id = row.dataset.saleId;
     if(!id) continue;
     if(row.dataset.delete === "1"){
-      const res = await fetch("/api/mobile/sales/"+encodeURIComponent(id), { method: "DELETE" });
+      const res = await fetch("/api/mobile/sales/"+encodeURIComponent(id), { method: "DELETE", headers:authHeaders() });
       if(!res.ok){ alert("Не удалось удалить запись"); $("reportEditButton").disabled=false; $("reportEditButton").textContent="SAVE"; return; }
       continue;
     }
@@ -2590,7 +2824,7 @@ async function saveReportEdits(){
     const quantityReturned = Number(row.querySelector(".edit-returned")?.value || 0);
     const res = await fetch("/api/mobile/sales/"+encodeURIComponent(id), {
       method: "PATCH",
-      headers: {"content-type":"application/json"},
+      headers: authHeaders({"content-type":"application/json"}),
       body: JSON.stringify({ unitPrice, quantitySold, quantityReturned })
     });
     if(!res.ok){ const data = await res.json().catch(()=>({})); alert(data.error || "Не удалось сохранить правки"); $("reportEditButton").disabled=false; $("reportEditButton").textContent="SAVE"; return; }
@@ -2604,7 +2838,7 @@ async function loadWarehouseDebt(){
   const params = new URLSearchParams();
   if($("warehouseFrom").value) params.set("from", $("warehouseFrom").value);
   if($("warehouseTo").value) params.set("to", $("warehouseTo").value);
-  const res = await fetch("/api/mobile/warehouse/debt?"+params.toString());
+  const res = await fetch("/api/mobile/warehouse/debt?"+params.toString(),{headers:authHeaders()});
   const data = await res.json();
   const box = $("warehouseDebtBox");
   const form = $("warehousePaymentForm");
@@ -2690,7 +2924,7 @@ function renderEditableSales(data){
     '<div class="report-row head"><span>Клиент</span><span>Цена</span><span>Продал</span><span>Забрал</span><span>Сумма</span><span></span></div>'+
     rows.map((row)=>
       '<div class="report-row" data-sale-id="'+escapeHtml(row.id || '')+'">'+
-        '<b>'+escapeHtml(row.destination)+'<small>'+escapeHtml(row.dateTime || row.date || "")+'</small></b>'+
+        '<b>'+escapeHtml(row.destination)+'<small>'+escapeHtml(row.employeeName || "Старые данные")+' · '+escapeHtml(row.dateTime || row.date || "")+'</small></b>'+
         '<input class="edit-price" inputmode="numeric" value="'+Number(row.unitPrice||0)+'" />'+
         '<input class="edit-sold" inputmode="numeric" value="'+Number(row.quantitySold||0)+'" />'+
         '<input class="edit-returned" inputmode="numeric" value="'+Number(row.quantityReturned||0)+'" />'+
@@ -2726,9 +2960,8 @@ function renderClientTable(data){
     '<div class="report-row head"><span>Клиент</span><span>Метод</span><span>Продал</span><span>Забрал</span><span>Оплатил</span><span>Спис.</span><span>Кулер</span></div>'+
     rows.map((row,index)=>
       '<div class="report-row '+(index >= 5 ? 'client-extra hidden' : '')+'">'+
-        '<b>'+escapeHtml(row.name)+'</b>'+
+        '<b>'+escapeHtml(row.name)+'<small>'+escapeHtml(row.employeeName || "Старые данные")+' · '+escapeHtml((row.saleTimes || []).slice(0,4).join(", ") || "дата не указана")+'</small></b>'+
         '<span class="method">'+paymentLabel(row.paymentType)+'</span>'+
-        '<span class="client-time">'+escapeHtml((row.saleTimes || []).slice(0,4).join(", ") || "дата не указана")+'</span>'+
         '<b>'+Number(row.sold||0)+'</b>'+
         '<b>'+Number(row.returned||0)+'</b>'+
         '<b class="paid">'+money(row.amount)+'</b>'+
