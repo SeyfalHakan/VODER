@@ -807,26 +807,30 @@ async function buildWarehouseDebt(fromInput, toInput) {
   let arrivals = memoryWarehouse.filter((row) => row.entry_type === "arrival" && inPeriod(row.report_date, from, to));
   let warehouseReturns = memoryWarehouse.filter((row) => row.entry_type === "return" && inPeriod(row.report_date, from, to));
   let writeoffs = memoryWarehouse.filter((row) => row.entry_type === "writeoff" && inPeriod(row.report_date, from, to));
-  let payments = memoryWarehousePayments.filter((row) => inPeriod(row.report_date, from, to));
   let sales = memorySales.filter((row) => inPeriod(row.report_date, from, to));
+  let actualDebtArrivals = memoryWarehouse.filter((row) => row.entry_type === "arrival" && row.report_date <= moscowDate());
+  let actualDebtPayments = memoryWarehousePayments.filter((row) => row.report_date <= moscowDate());
   if (supabase) {
-    const [arrivalsResult, returnsResult, writeoffsResult, paymentsResult, salesResult] = await Promise.all([
+    const [arrivalsResult, returnsResult, writeoffsResult, salesResult, actualArrivalsResult, actualPaymentsResult] = await Promise.all([
       supabase.from("stock_arrivals").select("quantity_received").gte("report_date", from).lte("report_date", to),
       supabase.from("remaining_stock_reports").select("remaining_quantity").gte("report_date", from).lte("report_date", to),
       supabase.from("defective_write_offs").select("defective_quantity").gte("report_date", from).lte("report_date", to),
-      supabase.from("warehouse_payments").select("cash_amount,transfer_amount").gte("report_date", from).lte("report_date", to),
-      supabase.from("shipments").select("quantity_sold,quantity_returned").gte("report_date", from).lte("report_date", to)
+      supabase.from("shipments").select("quantity_sold,quantity_returned").gte("report_date", from).lte("report_date", to),
+      loadAllDatedRows(supabase, "stock_arrivals", "quantity_received", "report_date", moscowDate()),
+      loadAllDatedRows(supabase, "warehouse_payments", "cash_amount,transfer_amount", "report_date", moscowDate())
     ]);
     if (arrivalsResult.error) return { status: 500, body: { error: arrivalsResult.error.message } };
     if (returnsResult.error) return { status: 500, body: { error: returnsResult.error.message } };
     if (writeoffsResult.error) return { status: 500, body: { error: writeoffsResult.error.message } };
-    if (paymentsResult.error) return { status: 500, body: { error: paymentsResult.error.message } };
     if (salesResult.error) return { status: 500, body: { error: salesResult.error.message } };
+    if (actualArrivalsResult.error) return { status: 500, body: { error: actualArrivalsResult.error.message } };
+    if (actualPaymentsResult.error) return { status: 500, body: { error: actualPaymentsResult.error.message } };
     arrivals = arrivalsResult.data ?? [];
     warehouseReturns = returnsResult.data ?? [];
     writeoffs = writeoffsResult.data ?? [];
-    payments = paymentsResult.data ?? [];
     sales = salesResult.data ?? [];
+    actualDebtArrivals = actualArrivalsResult.data;
+    actualDebtPayments = actualPaymentsResult.data;
   }
   const bottles = sum(arrivals, "quantity_received") || sum(arrivals, "quantity");
   const returnedBottles = sum(warehouseReturns, "remaining_quantity") || sum(warehouseReturns, "quantity");
@@ -834,10 +838,7 @@ async function buildWarehouseDebt(fromInput, toInput) {
   const sentBottles = sum(sales, "quantity_sold");
   const clientReturns = sum(sales, "quantity_returned");
   const stockRemaining = Math.max(0, bottles - returnedBottles - writtenOffBottles);
-  const cashDebt = bottles * 115;
-  const transferDebt = bottles * 5;
-  const cashPaid = sum(payments, "cash_amount");
-  const transferPaid = sum(payments, "transfer_amount");
+  const actualDebt = summarizeWarehouseDebt(actualDebtArrivals, actualDebtPayments);
   return {
     status: 200,
     body: {
@@ -849,15 +850,16 @@ async function buildWarehouseDebt(fromInput, toInput) {
       sentBottles,
       clientReturns,
       stockRemaining,
-      cashDebt,
-      transferDebt,
-      totalDebt: cashDebt + transferDebt,
-      cashPaid,
-      transferPaid,
-      paidTotal: cashPaid + transferPaid,
-      cashRemaining: Math.max(0, cashDebt - cashPaid),
-      transferRemaining: Math.max(0, transferDebt - transferPaid),
-      remainingTotal: Math.max(0, cashDebt + transferDebt - cashPaid - transferPaid)
+      debtBottles: actualDebt.bottles,
+      cashDebt: actualDebt.cashDebt,
+      transferDebt: actualDebt.transferDebt,
+      totalDebt: actualDebt.totalDebt,
+      cashPaid: actualDebt.cashPaid,
+      transferPaid: actualDebt.transferPaid,
+      paidTotal: actualDebt.paidTotal,
+      cashRemaining: actualDebt.cashRemaining,
+      transferRemaining: actualDebt.transferRemaining,
+      remainingTotal: actualDebt.remainingTotal
     }
   };
 }
@@ -2804,7 +2806,7 @@ async function loadWarehouseDebt(){
     '<div class="report-line"><span>Забрали от клиентов</span><b>'+Number(data.clientReturns||0)+' шт.</b></div>'+
     '<div class="report-line report-total"><span>Остаток склада</span><b>'+Number(data.stockRemaining||0)+' шт.</b></div>'+
     '<div class="report-section">Долг за бутылки</div>'+
-    '<div class="report-line"><span>Приход</span><b>'+Number(data.bottles||0)+' шт. × 120</b></div>'+
+    '<div class="report-line"><span>Фактический приход</span><b>'+Number(data.debtBottles||0)+' шт. × 120</b></div>'+
     '<div class="report-line"><span>Нал 115</span><b>'+money(data.cashRemaining)+' осталось</b></div>'+
     '<div class="report-line"><span>Безнал 5</span><b>'+money(data.transferRemaining)+' осталось</b></div>'+
     '<div class="report-line report-total"><span>Остаток долга</span><b>'+money(data.remainingTotal)+'</b></div>'+
