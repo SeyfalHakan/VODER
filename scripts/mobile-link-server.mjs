@@ -106,10 +106,10 @@ const server = createServer(async (request, response) => {
   if (request.method === "PATCH" && url.pathname.startsWith("/api/mobile/sales/")) {
     try {
       const session = readRequestSession(request);
-      if (!session || session.role !== "admin") return sendJsonError(response, 403, "Доступно только администратору");
+      if (!session) return sendJsonError(response, 401, "Войдите в аккаунт заново");
       const id = decodeURIComponent(url.pathname.split("/").pop() ?? "");
       const body = JSON.parse(await readBody(request));
-      const result = await updateSale(id, body);
+      const result = await updateSale(id, body, session);
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
     } catch (error) {
       send(response, 500, "application/json; charset=utf-8", JSON.stringify({ error: error.message }));
@@ -120,9 +120,9 @@ const server = createServer(async (request, response) => {
   if (request.method === "DELETE" && url.pathname.startsWith("/api/mobile/sales/")) {
     try {
       const session = readRequestSession(request);
-      if (!session || session.role !== "admin") return sendJsonError(response, 403, "Доступно только администратору");
+      if (!session) return sendJsonError(response, 401, "Войдите в аккаунт заново");
       const id = decodeURIComponent(url.pathname.split("/").pop() ?? "");
-      const result = await deleteSale(id);
+      const result = await deleteSale(id, session);
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
     } catch (error) {
       send(response, 500, "application/json; charset=utf-8", JSON.stringify({ error: error.message }));
@@ -526,7 +526,7 @@ async function findRecentDuplicateSaleInSupabase(supabase, payload) {
   return findRecentDuplicateSale(data ?? [], payload) ?? null;
 }
 
-async function updateSale(id, body) {
+async function updateSale(id, body, session) {
   if (!id) return { status: 400, body: { error: "Не найдена продажа" } };
   const quantitySold = Number(body.quantitySold ?? body.quantity_sold ?? 0);
   const quantityReturned = Number(body.quantityReturned ?? body.quantity_returned ?? 0);
@@ -547,26 +547,38 @@ async function updateSale(id, body) {
   if (!supabase) {
     const row = memorySales.find((item) => String(item.id) === String(id));
     if (!row) return { status: 404, body: { error: "Запись не найдена" } };
+    if (session.role !== "admin" && row.employee_name !== session.username) {
+      return { status: 403, body: { error: "Можно изменить только свою продажу" } };
+    }
     Object.assign(row, patch);
     return { status: 200, body: { ok: true, demo: true, payload: row } };
   }
 
-  const { error } = await supabase.from("shipments").update(patch).eq("id", id);
+  let query = supabase.from("shipments").update(patch).eq("id", id);
+  if (session.role !== "admin") query = query.eq("employee_name", session.username);
+  const { data, error } = await query.select("id").maybeSingle();
   if (error) return { status: 500, body: { error: error.message } };
+  if (!data) return { status: 403, body: { error: "Можно изменить только свою продажу" } };
   return { status: 200, body: { ok: true, demo: false, payload: { id, ...patch } } };
 }
 
-async function deleteSale(id) {
+async function deleteSale(id, session) {
   if (!id) return { status: 400, body: { error: "Не найдена продажа" } };
   const supabase = await createSupabaseAdminClient();
   if (!supabase) {
     const index = memorySales.findIndex((item) => String(item.id) === String(id));
     if (index === -1) return { status: 404, body: { error: "Запись не найдена" } };
+    if (session.role !== "admin" && memorySales[index].employee_name !== session.username) {
+      return { status: 403, body: { error: "Можно удалить только свою продажу" } };
+    }
     memorySales.splice(index, 1);
     return { status: 200, body: { ok: true, demo: true } };
   }
-  const { error } = await supabase.from("shipments").delete().eq("id", id);
+  let query = supabase.from("shipments").delete().eq("id", id);
+  if (session.role !== "admin") query = query.eq("employee_name", session.username);
+  const { data, error } = await query.select("id").maybeSingle();
   if (error) return { status: 500, body: { error: error.message } };
+  if (!data) return { status: 403, body: { error: "Можно удалить только свою продажу" } };
   return { status: 200, body: { ok: true, demo: false } };
 }
 
@@ -2070,7 +2082,7 @@ function applyRoleState(){
   $("reportFromWrap").classList.toggle("hidden", appRole === "employee");
   $("reportToWrap").classList.toggle("hidden", appRole === "employee");
   $("reportFilterWrap").classList.toggle("hidden", appRole !== "admin");
-  $("reportEditButton").classList.toggle("hidden", appRole !== "admin" || !lastReportData || !lastReportData.salesRows || !lastReportData.salesRows.length);
+  $("reportEditButton").classList.toggle("hidden", !loggedIn || !lastReportData || !lastReportData.salesRows || !lastReportData.salesRows.length);
   $("employeeShiftInfo").classList.toggle("hidden", appRole !== "employee");
   $("reportButton").textContent = appRole === "employee" ? "РАССЧИТАТЬ" : "Расчет за период";
   document.querySelectorAll(".auth-only").forEach((node)=>node.classList.toggle("hidden", !loggedIn));
@@ -2639,7 +2651,7 @@ async function calculateReport(){
       $("reportBox").hidden=false;
       const periodLine = currentReportPrefix(data);
       $("reportBox").innerHTML = appRole === "admin" ? renderAdminReport(data, periodLine) : renderEmployeeReport(data, periodLine, false);
-      $("reportEditButton").classList.toggle("hidden", appRole !== "admin" || !(data.salesRows || []).length);
+      $("reportEditButton").classList.toggle("hidden", !(data.salesRows || []).length);
     }
   } finally {
     $("reportButton").disabled=false;$("reportButton").textContent=appRole==="employee"?"РАССЧИТАТЬ":"Расчет за период";
