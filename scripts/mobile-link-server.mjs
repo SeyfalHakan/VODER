@@ -444,8 +444,8 @@ async function saveSale(body) {
   if (!Number.isFinite(quantityReturned) || quantityReturned < 0) {
     return { status: 400, body: { error: "Введите корректное количество возврата" } };
   }
-  if (![200, 250, 300].includes(unitPrice)) {
-    return { status: 400, body: { error: "Выберите цену 200, 250 или 300 руб." } };
+  if (![200, 250, 300, 350].includes(unitPrice)) {
+    return { status: 400, body: { error: "Выберите цену 200, 250, 300 или 350 руб." } };
   }
   if (!["cash", "transfer"].includes(paymentType)) {
     return { status: 400, body: { error: "Выберите НАЛ или БНАЛ" } };
@@ -533,7 +533,7 @@ async function updateSale(id, body, session) {
   const unitPrice = Number(body.unitPrice ?? body.unit_price ?? 0);
   if (!Number.isFinite(quantitySold) || quantitySold < 0) return { status: 400, body: { error: "Введите количество проданных" } };
   if (!Number.isFinite(quantityReturned) || quantityReturned < 0) return { status: 400, body: { error: "Введите количество возврата" } };
-  if (![200, 250, 300].includes(unitPrice)) return { status: 400, body: { error: "Цена должна быть 200, 250 или 300" } };
+  if (![200, 250, 300, 350].includes(unitPrice)) return { status: 400, body: { error: "Цена должна быть 200, 250, 300 или 350" } };
 
   const patch = {
     quantity_delivered: quantitySold,
@@ -897,7 +897,7 @@ function summarizeOperations(sales, expenses) {
   const cashBalance = cashIncome - cashExpenses;
   const transferBalance = transferIncome - transferExpenses;
   const factTotal = cashBalance + transferBalance;
-  const byPrice = [200, 250, 300].map((price) => {
+  const byPrice = [200, 250, 300, 350].map((price) => {
     const rows = sales.filter((row) => Number(row.unit_price) === price);
     return {
       price,
@@ -1225,7 +1225,7 @@ async function buildAudit(fromInput, toInput) {
   }
 
   const fixed = fixedMonthlyTotal(from, to);
-  const byPrice = [200, 250, 300].map((price) => {
+  const byPrice = [200, 250, 300, 350].map((price) => {
     const rows = sales.filter((row) => Number(row.unit_price) === price);
     return {
       price,
@@ -1649,10 +1649,10 @@ function mobileHtml() {
     main{min-height:100vh;padding:calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 92px)}
     .app{max-width:430px;margin:0 auto;min-height:calc(100vh - 40px);display:flex;flex-direction:column}
     header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}.brand{display:flex;align-items:center;gap:12px}.logo{width:46px;height:46px;border-radius:14px;background:var(--aqua);display:grid;place-items:center;color:white;box-shadow:0 18px 45px rgba(16,32,42,.08)}h1{font-size:22px;line-height:1.1;margin:0}.sub{margin:4px 0 0;color:var(--muted);font-size:14px}.pill{border:1px solid var(--line);background:white;border-radius:10px;padding:8px 10px;color:var(--muted);font-size:12px;font-weight:600}
-    .card{background:white;border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 45px rgba(16,32,42,.08)}.tabs,.payments{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px}.prices{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:12px}.prices,.payments{margin-top:12px}.tab{height:82px}.price,.payment{height:58px}.tab,.price,.payment{border-radius:12px;border:1px solid var(--line);background:white;color:var(--muted);font-size:16px;font-weight:800}.tab.active,.price.active,.payment.active{border-color:var(--aqua);background:var(--aqua);color:white}
+    .card{background:white;border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 45px rgba(16,32,42,.08)}.tabs,.payments{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px}.prices{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px}.prices,.payments{margin-top:12px}.tab{height:82px}.price,.payment{height:58px}.tab,.price,.payment{border-radius:12px;border:1px solid var(--line);background:white;color:var(--muted);font-size:16px;font-weight:800}.tab.active,.price.active,.payment.active{border-color:var(--aqua);background:var(--aqua);color:white}
     form,.panel{margin-top:14px;padding:16px;display:flex;flex:1;flex-direction:column;gap:16px}.page{display:none}.page.active{display:flex;flex-direction:column;flex:1}label span{display:block;margin-bottom:8px;color:var(--muted);font-size:14px;font-weight:700}input,textarea{width:100%;border:1px solid var(--line);border-radius:12px;padding:0 14px;color:var(--ink);font-size:20px;font-weight:800;outline:none}input{height:58px}textarea{min-height:118px;padding-top:14px;resize:vertical;font-size:17px;line-height:1.35}input:focus,textarea:focus{border-color:var(--aqua)}
     .sum{margin-top:auto;border-radius:12px;background:var(--soft);padding:14px}.row{display:flex;justify-content:space-between;gap:12px}.row+.row{margin-top:8px}.row span:first-child{color:var(--muted)}.total{font-size:28px;font-weight:900}.message{border-radius:12px;padding:10px 12px;font-size:14px}.ok{background:#ecfdf5;color:#047857}.err{background:#fef2f2;color:var(--danger)}.submit{height:58px;border:0;border-radius:12px;background:var(--aqua);color:white;font-size:17px;font-weight:900;box-shadow:0 18px 45px rgba(16,32,42,.08)}.submit:disabled{opacity:.65}
-    .expense-types,.report-actions{display:grid;grid-template-columns:1fr;gap:8px}.expense-btn{min-height:58px;border-radius:12px;border:1px solid var(--line);background:white;color:var(--muted);font-size:17px;font-weight:800}.expense-btn.active{border-color:var(--aqua);background:var(--aqua);color:white}.hint{margin:0;color:var(--muted);font-size:13px;line-height:1.45}.report-box{display:grid;gap:10px;border-radius:12px;background:var(--soft);padding:14px}.report-line{display:flex;justify-content:space-between;gap:12px}.report-line b{text-align:right}.report-section{margin-top:6px;padding-top:10px;border-top:1px solid var(--line);font-size:13px;color:var(--muted);font-weight:900;text-transform:uppercase}.report-total{font-size:16px}.report-total b{font-size:20px}.report-mini{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:-2px}.report-mini div{border:1px solid var(--line);border-radius:10px;background:white;padding:8px;font-size:12px;color:var(--muted)}.report-mini b{display:block;margin-top:3px;color:var(--ink);font-size:14px}.fixed-list{margin:0;padding-left:18px;color:var(--muted);font-size:13px;line-height:1.5}.asset-grid{display:grid;grid-template-columns:1fr;gap:10px}.asset-card{display:grid;grid-template-columns:42px 1fr auto;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;background:white;padding:12px}.asset-icon{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:var(--soft);font-size:22px}.asset-title{font-size:13px;color:var(--muted);font-weight:700}.asset-value{font-size:24px;font-weight:900}.asset-sub{font-size:12px;color:var(--muted)}.asset-line{height:14px;border-radius:99px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);box-shadow:0 10px 28px rgba(47,123,255,.18),inset 0 1px 0 rgba(255,255,255,.18);overflow:hidden;display:flex;gap:2px;padding:2px}.asset-line span{display:block;height:100%;border-radius:99px;transition:width .25s ease}.asset-line-warehouse{background:#67dcff}.asset-line-client{background:#5b35d8}.asset-line-writeoff{background:#7f1231}.footer{position:fixed;left:0;right:0;bottom:0;z-index:10;border-top:1px solid var(--line);background:rgba(255,255,255,.96);backdrop-filter:blur(12px);padding:8px 12px calc(env(safe-area-inset-bottom) + 8px)}.footer-inner{max-width:430px;margin:0 auto;display:grid;grid-template-columns:repeat(7,minmax(66px,1fr));gap:6px;overflow-x:auto}.footer button{height:54px;border:0;border-radius:12px;background:var(--soft);color:var(--muted);font-size:11px;font-weight:900}.footer button.active{background:var(--aqua);color:white}.start-screen{display:none}.start-card{width:min(430px,100%);display:grid;gap:16px;padding:18px}.shift-pill{border-radius:10px;background:#ecfdf5;color:#047857;padding:9px 10px;font-size:13px;font-weight:800}.close-btn{background:#10202a!important;color:white!important}.closed-summary{display:grid;gap:10px;border-radius:12px;background:var(--soft);padding:14px}.hidden{display:none!important}.admin-only.hidden{display:none!important}.pin-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.pin-grid input{text-align:center;font-size:26px}.home-actions{display:grid;gap:12px}.logout-btn{background:#10202a!important}
+    .expense-types,.report-actions{display:grid;grid-template-columns:1fr;gap:8px}.expense-btn{min-height:58px;border-radius:12px;border:1px solid var(--line);background:white;color:var(--muted);font-size:17px;font-weight:800}.expense-btn.active{border-color:var(--aqua);background:var(--aqua);color:white}.hint{margin:0;color:var(--muted);font-size:13px;line-height:1.45}.report-box{display:grid;gap:10px;border-radius:12px;background:var(--soft);padding:14px}.report-line{display:grid;grid-template-columns:minmax(0,42%) minmax(0,58%);gap:12px;align-items:start}.report-line span,.report-line b{min-width:0;overflow-wrap:anywhere}.report-line b{text-align:right}.report-section{margin-top:6px;padding-top:10px;border-top:1px solid var(--line);font-size:13px;color:var(--muted);font-weight:900;text-transform:uppercase}.report-total{font-size:16px}.report-total b{font-size:20px}.report-mini{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:-2px}.report-mini div{border:1px solid var(--line);border-radius:10px;background:white;padding:8px;font-size:12px;color:var(--muted)}.report-mini b{display:block;margin-top:3px;color:var(--ink);font-size:14px}.fixed-list{margin:0;padding-left:18px;color:var(--muted);font-size:13px;line-height:1.5}.asset-grid{display:grid;grid-template-columns:1fr;gap:10px}.asset-card{display:grid;grid-template-columns:42px 1fr auto;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;background:white;padding:12px}.asset-icon{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:var(--soft);font-size:22px}.asset-title{font-size:13px;color:var(--muted);font-weight:700}.asset-value{font-size:24px;font-weight:900}.asset-sub{font-size:12px;color:var(--muted)}.asset-line{height:14px;border-radius:99px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);box-shadow:0 10px 28px rgba(47,123,255,.18),inset 0 1px 0 rgba(255,255,255,.18);overflow:hidden;display:flex;gap:2px;padding:2px}.asset-line span{display:block;height:100%;border-radius:99px;transition:width .25s ease}.asset-line-warehouse{background:#67dcff}.asset-line-client{background:#5b35d8}.asset-line-writeoff{background:#7f1231}.footer{position:fixed;left:0;right:0;bottom:0;z-index:10;border-top:1px solid var(--line);background:rgba(255,255,255,.96);backdrop-filter:blur(12px);padding:8px 12px calc(env(safe-area-inset-bottom) + 8px)}.footer-inner{max-width:430px;margin:0 auto;display:grid;grid-template-columns:repeat(7,minmax(66px,1fr));gap:6px;overflow-x:auto}.footer button{height:54px;border:0;border-radius:12px;background:var(--soft);color:var(--muted);font-size:11px;font-weight:900}.footer button.active{background:var(--aqua);color:white}.start-screen{display:none}.start-card{width:min(430px,100%);display:grid;gap:16px;padding:18px}.shift-pill{border-radius:10px;background:#ecfdf5;color:#047857;padding:9px 10px;font-size:13px;font-weight:800}.close-btn{background:#10202a!important;color:white!important}.closed-summary{display:grid;gap:10px;border-radius:12px;background:var(--soft);padding:14px}.hidden{display:none!important}.admin-only.hidden{display:none!important}.pin-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.pin-grid input{text-align:center;font-size:26px}.home-actions{display:grid;gap:12px}.logout-btn{background:#10202a!important}
     button,.report-line span,.report-line b,label span{white-space:nowrap}.tab,.price,.payment,.expense-btn,.submit{font-size:clamp(12px,3.5vw,16px);overflow:hidden;text-overflow:ellipsis}.tabs{grid-template-columns:1fr}.tab{display:grid;place-items:center;height:38px;border:0!important;background:transparent!important;color:var(--ink)!important;font-size:18px!important;font-weight:900;pointer-events:none}.footer button{font-size:10px}.work-kpi{margin-top:12px;padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px}.work-kpi div{border-radius:12px;background:var(--soft);padding:10px}.work-kpi span{display:block;color:var(--muted);font-size:12px;font-weight:800;white-space:nowrap}.work-kpi b{display:block;margin-top:4px;font-size:18px;white-space:nowrap}.destination-grid{display:grid;grid-template-columns:1fr 54px 54px;gap:8px;align-items:end}.destination-field{position:relative}.suggestions{position:absolute;left:0;right:0;top:calc(100% + 7px);z-index:30;display:grid;gap:6px;padding:7px;border:1px solid rgba(216,225,255,.18);border-radius:18px;background:rgba(11,4,28,.96);box-shadow:0 18px 44px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.10);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}.suggestion-btn{min-height:38px;border:1px solid rgba(216,225,255,.12);border-radius:13px;background:rgba(255,255,255,.07);color:#fff;text-align:left;padding:0 12px;font-size:14px;font-weight:850}.suggestion-btn:active{background:linear-gradient(135deg,#320096,#849bff)}.cooler-btn{height:58px;border-radius:12px;border:1px solid var(--line);background:white;font-size:22px;font-weight:900}.cooler-btn.our.active{background:#16a34a;color:white;border-color:#16a34a}.cooler-btn.not.active{background:#dc2626;color:white;border-color:#dc2626}
     :root{--ink:#f7fbff;--muted:#9ea8bb;--line:rgba(255,255,255,.14);--aqua:#2e7bff;--soft:rgba(255,255,255,.07);--danger:#ff6176;--panel:rgba(13,16,27,.78);--panel2:rgba(24,28,43,.68);--glow:#78b8ff}
     *{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif!important}
@@ -1819,7 +1819,7 @@ function mobileHtml() {
         <label><span>Продал</span><input id="sold" inputmode="numeric" pattern="[0-9]*" placeholder="20" required /></label>
         <label id="returnedWrap"><span>Забрал</span><input id="returned" inputmode="numeric" pattern="[0-9]*" placeholder="3" /></label>
       </div>
-      <section class="card prices"><button id="price200" class="price" type="button">200 руб.</button><button id="price250" class="price" type="button">250 руб.</button><button id="price300" class="price active" type="button">300 руб.</button></section>
+      <section class="card prices"><button id="price200" class="price" type="button">200 руб.</button><button id="price250" class="price" type="button">250 руб.</button><button id="price300" class="price active" type="button">300 руб.</button><button id="price350" class="price" type="button">350 руб.</button></section>
       <section class="card payments"><button id="cash" class="payment active" type="button">НАЛ</button><button id="transfer" class="payment" type="button">БНАЛ</button></section>
       <div class="sum"><div class="row"><span>Цена</span><b id="priceText">300 руб. / бутылка</b></div><div class="row"><span>Итого</span><b class="total" id="total">0 руб.</b></div></div>
       <section id="recentOrdersBox" class="recent-orders hidden"></section>
@@ -2167,6 +2167,7 @@ function render(){
   $("price200").classList.toggle("active", unitPrice===200);
   $("price250").classList.toggle("active", unitPrice===250);
   $("price300").classList.toggle("active", unitPrice===300);
+  $("price350").classList.toggle("active", unitPrice===350);
   $("cash").classList.toggle("active", paymentType==="cash");
   $("transfer").classList.toggle("active", paymentType==="transfer");
   $("reportCashFilter").classList.toggle("active", adminReportPaymentFilter === "cash");
@@ -2240,6 +2241,7 @@ function toggleWarehouseEntry(type){
 $("price200").onclick=()=>{unitPrice=200;render()};
 $("price250").onclick=()=>{unitPrice=250;render()};
 $("price300").onclick=()=>{unitPrice=300;render()};
+$("price350").onclick=()=>{unitPrice=350;render()};
 $("cash").onclick=()=>{paymentType="cash";render()};
 $("transfer").onclick=()=>{paymentType="transfer";render()};
 $("reportCashFilter").onclick=()=>{adminReportPaymentFilter=adminReportPaymentFilter==="cash"?"":"cash";render();if(lastReportData)calculateReport()};
@@ -2962,8 +2964,8 @@ function renderProfitTable(data){
 function renderWarehouseDebtReport(data){
   const debt = data.warehouseDebt || {};
   return '<div class="report-line"><span>Приход по 120</span><b>'+Number(debt.bottles||0)+' шт. / '+money(debt.totalDebt)+'</b></div>'+
-    '<div class="report-line"><span>Долг наличными 115</span><b>'+money(debt.cashRemaining)+' из '+money(debt.cashDebt)+'</b></div>'+
-    '<div class="report-line"><span>Долг безнал 5</span><b>'+money(debt.transferRemaining)+' из '+money(debt.transferDebt)+'</b></div>'+
+    '<div class="report-line"><span>Долг нал 115</span><b>'+money(debt.cashRemaining)+' из '+money(debt.cashDebt)+'</b></div>'+
+    '<div class="report-line"><span>Долг бнал 5</span><b>'+money(debt.transferRemaining)+' из '+money(debt.transferDebt)+'</b></div>'+
     '<div class="report-line report-total"><span>Остаток долга</span><b>'+money(debt.remainingTotal)+'</b></div>';
 }
 function renderAdminReport(data, prefix, editable=false){
