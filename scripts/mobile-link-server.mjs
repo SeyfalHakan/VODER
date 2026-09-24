@@ -280,7 +280,8 @@ const server = createServer(async (request, response) => {
 
   if (request.method === "GET" && url.pathname === "/api/mobile/coolers") {
     try {
-      if (!readRequestSession(request)) return sendJsonError(response, 401, "Войдите в аккаунт заново");
+      const session = readRequestSession(request);
+      if (!session || session.role !== "admin") return sendJsonError(response, 403, "Доступно только администратору");
       const result = await buildCoolerRegistry(url.searchParams.get("filter"));
       send(response, result.status, "application/json; charset=utf-8", JSON.stringify(result.body));
     } catch (error) {
@@ -439,13 +440,13 @@ async function saveSale(body) {
     return { status: 400, body: { error: saleChannel === "pavilion" ? "Введите номер павильона" : "Введите склад / клиента" } };
   }
   if (!Number.isFinite(quantityDelivered) || quantityDelivered <= 0) {
-    return { status: 400, body: { error: "Введите количество проданных бутылок" } };
+    return { status: 400, body: { error: "Введите количество проданных бут." } };
   }
   if (!Number.isFinite(quantityReturned) || quantityReturned < 0) {
     return { status: 400, body: { error: "Введите корректное количество возврата" } };
   }
   if (![200, 250, 300, 350].includes(unitPrice)) {
-    return { status: 400, body: { error: "Выберите цену 200, 250, 300 или 350 руб." } };
+    return { status: 400, body: { error: "Выберите цену 200, 250, 300 или 350 ₽" } };
   }
   if (!["cash", "transfer"].includes(paymentType)) {
     return { status: 400, body: { error: "Выберите НАЛ или БНАЛ" } };
@@ -712,9 +713,9 @@ async function saveExpense(body) {
 
   const defaultComment =
     expenseType === "parking"
-      ? "Парковка: фиксированно 1000 руб."
+      ? "Парковка: фиксированно 1000 ₽"
       : expenseType === "stretch"
-        ? "Стрейч: фиксированно 1900 руб."
+        ? "Стрейч: фиксированно 1900 ₽"
         : "Зарплата";
   const payload = {
     expense_date: moscowDate(),
@@ -747,7 +748,7 @@ async function saveWarehouseEntry(body) {
     return { status: 400, body: { error: "Выберите приход, возврат, остаток или списание" } };
   }
   if (!Number.isFinite(quantity) || quantity < 0) {
-    return { status: 400, body: { error: "Введите количество бутылок" } };
+    return { status: 400, body: { error: "Введите количество бут." } };
   }
 
   const payload = {
@@ -1765,7 +1766,7 @@ function mobileHtml() {
 <body>
 <div id="bootLoader" class="boot-loader"><div class="boot-loader-card"><img src="/icon.svg?v=3" alt="VODER" /><div class="loader-ring"></div></div></div>
 <main><div class="app">
-  <header><div class="brand"><div class="logo"><img src="/icon.svg?v=3" alt="VODER" /></div><div><h1 class="app-title">VODER <span id="channelBadge" class="channel-badge hidden">Павильон</span></h1><p class="sub">Продажа бутылок 19 л</p></div></div><div class="pill" id="shiftStatus">Москва</div></header>
+  <header><div class="brand"><div class="logo"><img src="/icon.svg?v=3" alt="VODER" /></div><div><h1 class="app-title">VODER <span id="channelBadge" class="channel-badge hidden">Павильон</span></h1><p class="sub">Продажа бут. 19 л</p></div></div><div class="pill" id="shiftStatus">Москва</div></header>
   <section id="homePage" class="page active">
     <div class="card panel">
       <div class="home-splash-brand"><img src="/voder-logo.svg?v=3" alt="VODER" /></div>
@@ -1789,7 +1790,7 @@ function mobileHtml() {
         <section id="adminAssets" class="admin-only hidden">
           <div class="admin-home-logo"><img src="/icon.svg?v=3" alt="VODER" /></div>
           <div class="report-box asset-hidden" hidden>
-            <div class="report-line"><span>Активы бутылок</span><b id="assetTotal">0 шт.</b></div>
+            <div class="report-line"><span>Активы, бут.</span><b id="assetTotal">0 шт.</b></div>
             <div class="asset-line"><span id="assetWarehouseLine" class="asset-line-warehouse"></span><span id="assetClientLine" class="asset-line-client"></span><span id="assetWriteoffLine" class="asset-line-writeoff"></span></div>
             <div class="asset-grid">
               <div class="asset-card"><div class="asset-icon">📦</div><div><div class="asset-title">На складе</div><div class="asset-sub">остаток и приход</div></div><div class="asset-value" id="assetWarehouse">0</div></div>
@@ -1812,16 +1813,16 @@ function mobileHtml() {
 
   <section id="workPage" class="page">
     <section class="card tabs"><div id="warehouse" class="tab">Склад</div><div id="pavilion" class="tab active">Павильон</div></section>
-    <section id="warehouseMini" class="card work-kpi hidden"><div><span>📦 Продано бутылок</span><b id="miniBottles">0 шт.</b></div><div><span>💰 Расчет по 70</span><b id="miniEarning">0 руб.</b></div></section>
+      <section id="warehouseMini" class="card work-kpi hidden"><div><span>📦 Продано, бут.</span><b id="miniBottles">0 шт.</b></div><div><span>💰 Расчет по 70</span><b id="miniEarning">0 ₽</b></div></section>
     <form id="form" class="card">
       <div class="destination-grid"><label class="destination-field"><span id="destinationLabel">Номер павильона</span><input id="destination" type="text" inputmode="text" placeholder="Например: 12" autocomplete="off" autocorrect="off" spellcheck="false" required /><div id="destinationSuggestions" class="suggestions hidden"></div></label><button id="coolerOur" class="cooler-btn our active" type="button">💧<small>НАШ</small></button><button id="coolerNot" class="cooler-btn not" type="button">💧<small>НЕ НАШ</small></button></div>
       <div class="quantity-grid">
         <label><span>Продал</span><input id="sold" inputmode="numeric" pattern="[0-9]*" placeholder="20" required /></label>
         <label id="returnedWrap"><span>Забрал</span><input id="returned" inputmode="numeric" pattern="[0-9]*" placeholder="3" /></label>
       </div>
-      <section class="card prices"><button id="price200" class="price" type="button">200 руб.</button><button id="price250" class="price" type="button">250 руб.</button><button id="price300" class="price active" type="button">300 руб.</button><button id="price350" class="price" type="button">350 руб.</button></section>
+      <section class="card prices"><button id="price200" class="price" type="button">200</button><button id="price250" class="price" type="button">250</button><button id="price300" class="price active" type="button">300</button><button id="price350" class="price" type="button">350</button></section>
       <section class="card payments"><button id="cash" class="payment active" type="button">НАЛ</button><button id="transfer" class="payment" type="button">БНАЛ</button></section>
-      <div class="sum"><div class="row"><span>Цена</span><b id="priceText">300 руб. / бутылка</b></div><div class="row"><span>Итого</span><b class="total" id="total">0 руб.</b></div></div>
+      <div class="sum"><div class="row"><span>Цена</span><b id="priceText">300 ₽ / бут.</b></div><div class="row"><span>Итого</span><b class="total" id="total">0 ₽</b></div></div>
       <section id="recentOrdersBox" class="recent-orders hidden"></section>
       <p id="message" hidden></p>
       <button id="submit" class="submit" type="submit">Сохранить продажу</button>
@@ -1841,7 +1842,7 @@ function mobileHtml() {
         <label id="expenseSalaryWrap" class="expense-field hidden"><span>Сумма зарплаты</span><input id="expenseSalaryAmount" inputmode="numeric" pattern="[0-9]*" placeholder="Например: 4500" /></label>
         <label id="expenseOtherAmountWrap" class="expense-field hidden"><span>Сумма прочих</span><input id="expenseOtherAmount" inputmode="numeric" pattern="[0-9]*" placeholder="Например: 1200" /></label>
         <label id="expenseCommentWrap" class="expense-field hidden"><span>Комментарий</span><textarea id="expenseComment" placeholder="На что ушло"></textarea></label>
-        <div class="expense-save-row"><span class="expense-save-label">К сохранению</span><b id="expensePreview" class="expense-save-pill">0 руб.</b></div>
+        <div class="expense-save-row"><span class="expense-save-label">К сохранению</span><b id="expensePreview" class="expense-save-pill">0 ₽</b></div>
         <p id="expenseMessage" hidden></p>
         <button id="expenseSubmit" class="submit" type="submit">Сохранить расход</button>
       </form>
@@ -1915,7 +1916,7 @@ function mobileHtml() {
     </div>
   </section>
 
-  <section id="coolersPage" class="page">
+  <section id="coolersPage" class="page admin-only hidden">
     <div class="card panel">
       <div class="report-box">
         <div class="report-line"><span>Наши кулеры</span><b id="coolerTotal">0 шт.</b></div>
@@ -1927,7 +1928,7 @@ function mobileHtml() {
     </div>
   </section>
 </div></main>
-<footer class="footer"><div class="footer-inner"><button id="navHome" class="active" type="button" aria-label="Главная" title="Главная"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h5v-5h3v5h5v-9.5"/></svg><span class="nav-label">Главная</span></button><button id="navWork" class="auth-only hidden" type="button" aria-label="Работа" title="Работа"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7.5h14a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9.5a2 2 0 0 1 2-2Z"/><path d="M8 7.5V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v1.5"/></svg><span class="nav-label">Работа</span></button><button id="navExpenses" class="auth-only hidden" type="button" aria-label="Расходы" title="Расходы"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8h12"/><path d="M6 12h12"/><path d="M6 16h8"/><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13A2.5 2.5 0 0 1 17.5 21h-11A2.5 2.5 0 0 1 4 18.5Z"/></svg><span class="nav-label">Расходы</span></button><button id="navReport" class="auth-only hidden" type="button" aria-label="Отчет" title="Отчет"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10"/><path d="M12 20V5"/><path d="M19 20v-7"/><path d="M3 20h18"/></svg><span class="nav-label">Отчет</span></button><button id="navWarehouse" class="admin-only hidden" type="button" aria-label="Склад" title="Склад"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10 12 5l8 5"/><path d="M5.5 10.5V20h13V10.5"/><path d="M9 20v-6h6v6"/></svg><span class="nav-label">Склад</span></button><button id="navCoolers" class="auth-only hidden" type="button" aria-label="Кулеры" title="Кулеры"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8"/><path d="M9 4v5l-2.5 4A5 5 0 0 0 11 20h2a5 5 0 0 0 4.5-7L15 9V4"/><path d="M9 13h6"/></svg><span class="nav-label">Кулеры</span></button><button id="navAudit" class="admin-only hidden" type="button" aria-label="Аудит" title="Аудит"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8"/><path d="M9 4v2a2 2 0 0 1-2 2H5v14h14V8h-2a2 2 0 0 1-2-2V4"/><path d="m8 15 2.5 2.5L16 12"/></svg><span class="nav-label">Аудит</span></button></div></footer>
+<footer class="footer"><div class="footer-inner"><button id="navHome" class="active" type="button" aria-label="Главная" title="Главная"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h5v-5h3v5h5v-9.5"/></svg><span class="nav-label">Главная</span></button><button id="navWork" class="auth-only hidden" type="button" aria-label="Работа" title="Работа"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7.5h14a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9.5a2 2 0 0 1 2-2Z"/><path d="M8 7.5V6a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v1.5"/></svg><span class="nav-label">Работа</span></button><button id="navExpenses" class="auth-only hidden" type="button" aria-label="Расходы" title="Расходы"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8h12"/><path d="M6 12h12"/><path d="M6 16h8"/><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13A2.5 2.5 0 0 1 17.5 21h-11A2.5 2.5 0 0 1 4 18.5Z"/></svg><span class="nav-label">Расходы</span></button><button id="navReport" class="auth-only hidden" type="button" aria-label="Отчет" title="Отчет"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10"/><path d="M12 20V5"/><path d="M19 20v-7"/><path d="M3 20h18"/></svg><span class="nav-label">Отчет</span></button><button id="navWarehouse" class="admin-only hidden" type="button" aria-label="Склад" title="Склад"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10 12 5l8 5"/><path d="M5.5 10.5V20h13V10.5"/><path d="M9 20v-6h6v6"/></svg><span class="nav-label">Склад</span></button><button id="navCoolers" class="admin-only hidden" type="button" aria-label="Кулеры" title="Кулеры"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8"/><path d="M9 4v5l-2.5 4A5 5 0 0 0 11 20h2a5 5 0 0 0 4.5-7L15 9V4"/><path d="M9 13h6"/></svg><span class="nav-label">Кулеры</span></button><button id="navAudit" class="admin-only hidden" type="button" aria-label="Аудит" title="Аудит"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8"/><path d="M9 4v2a2 2 0 0 1-2 2H5v14h14V8h-2a2 2 0 0 1-2-2V4"/><path d="m8 15 2.5 2.5L16 12"/></svg><span class="nav-label">Аудит</span></button></div></footer>
 <script>
 let saleChannel = "pavilion";
 let unitPrice = 300;
@@ -2003,7 +2004,7 @@ function renderRecentOrders(){
   box.classList.remove("hidden");
   box.innerHTML = '<div class="recent-title">Последние 3 заказа</div>' + recentOrders.map((order)=>(
     '<div class="recent-row"><div><b>'+escapeHtml(order.destination || "Клиент")+'</b><small>'+
-    escapeHtml(order.time || "")+' · '+escapeHtml(order.payment || "")+' · '+Number(order.price || 0)+' руб.</small></div><span>'+
+    escapeHtml(order.time || "")+' · '+escapeHtml(order.payment || "")+' · '+Number(order.price || 0)+' ₽</small></div><span>'+
     Number(order.sold || 0)+' шт. / '+money(order.amount || 0)+'</span></div>'
   )).join("");
 }
@@ -2140,7 +2141,7 @@ function showPage(page){
   $("expensesPage").classList.toggle("active", page==="expenses");
   $("reportPage").classList.toggle("active", page==="report");
   $("warehousePage").classList.toggle("active", page==="warehouse" && appRole==="admin");
-  $("coolersPage").classList.toggle("active", page==="coolers" && loggedIn);
+  $("coolersPage").classList.toggle("active", page==="coolers" && appRole==="admin");
   $("auditPage").classList.toggle("active", page==="audit" && appRole==="admin");
   $("navHome").classList.toggle("active", page==="home");
   $("navWork").classList.toggle("active", page==="work");
@@ -2152,7 +2153,7 @@ function showPage(page){
   if (page === "work" && appRole === "employee") loadWorkKpi();
   if (page === "home" && appRole === "admin") loadAssets();
   if (page === "warehouse" && appRole === "admin") loadWarehouseDebt();
-  if (page === "coolers" && loggedIn) loadCoolers();
+  if (page === "coolers" && appRole === "admin") loadCoolers();
   if (page === "report" && appRole === "employee" && (!currentShift || currentShift.closed_at) && lastClosedReport) {
     $("reportBox").hidden = false;
     $("reportBox").innerHTML = lastClosedReport;
@@ -2184,9 +2185,9 @@ function render(){
   $("destination").setAttribute("inputmode", "text");
   $("destination").removeAttribute("pattern");
   $("destination").setAttribute("autocomplete", "off");
-  $("priceText").textContent = unitPrice + " руб. / бутылка";
+  $("priceText").textContent = unitPrice + " ₽ / бут.";
   const sold = Number($("sold").value || 0);
-  $("total").textContent = (sold * unitPrice) + " руб.";
+  $("total").textContent = (sold * unitPrice) + " ₽";
 }
 function hideDestinationSuggestions(){
   $("destinationSuggestions").classList.add("hidden");
@@ -2663,7 +2664,7 @@ $("reportButton").onclick=calculateReport;
 async function loadWorkKpi(){
   if(!currentShift || currentShift.closed_at){
     $("miniBottles").textContent = "0 шт.";
-    $("miniEarning").textContent = "0 руб.";
+    $("miniEarning").textContent = "0 ₽";
     return;
   }
   const params = new URLSearchParams({
@@ -2819,7 +2820,7 @@ async function loadWarehouseDebt(){
     '<div class="report-line"><span>Отправили клиентам</span><b>'+Number(data.sentBottles||0)+' шт.</b></div>'+
     '<div class="report-line"><span>Забрали от клиентов</span><b>'+Number(data.clientReturns||0)+' шт.</b></div>'+
     '<div class="report-line report-total"><span>Остаток склада</span><b>'+Number(data.stockRemaining||0)+' шт.</b></div>'+
-    '<div class="report-section">Долг за бутылки</div>'+
+    '<div class="report-section">Долг за бут.</div>'+
     '<div class="report-line"><span>Фактический приход</span><b>'+Number(data.debtBottles||0)+' шт. × 120</b></div>'+
     '<div class="report-line"><span>Нал 115</span><b>'+money(data.cashRemaining)+' осталось</b></div>'+
     '<div class="report-line"><span>Безнал 5</span><b>'+money(data.transferRemaining)+' осталось</b></div>'+
@@ -2830,7 +2831,7 @@ function parseAmount(text){
   const match=String(text).replace(/\\s/g,"").match(/\\d+(?:[.,]\\d+)?/);
   return match?Number(match[0].replace(",",".")):0;
 }
-function money(value){return Number(value||0).toLocaleString("ru-RU")+" руб."}
+function money(value){return Number(value||0).toLocaleString("ru-RU")+" ₽"}
 function escapeHtml(value){
   return String(value ?? "").replace(/[&<>"']/g,(char)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","'":"&#039;"}[char]));
 }
@@ -2858,7 +2859,7 @@ function coolerLabel(status){
 }
 function renderPriceRows(data){
   return (data.byPrice || []).map((item)=>
-    '<div class="report-line"><span>'+item.price+' руб.</span><b>'+Number(item.bottles||0)+' шт. / '+money(item.amount)+'</b></div>'
+    '<div class="report-line"><span>'+item.price+' ₽</span><b>'+Number(item.bottles||0)+' шт. / '+money(item.amount)+'</b></div>'
   ).join("");
 }
 function renderExpenseRows(data){
@@ -2956,7 +2957,7 @@ function renderProfitTable(data){
     '<div class="profit-card"><span>Забрали</span><b>'+Number(data.returnedTotal||0)+' шт.</b></div>'+
     '<div class="profit-card"><span>Оборот</span><b>'+money(data.income)+'</b></div>'+
     '<div class="profit-card"><span>Расходы</span><b>'+money(data.expenseTotal)+'</b></div>'+
-    '<div class="profit-card"><span>Расход бутылки 120</span><b>'+money(data.bottleCostTotal)+'</b></div>'+
+    '<div class="profit-card"><span>Расход бут. 120</span><b>'+money(data.bottleCostTotal)+'</b></div>'+
     '<div class="profit-card"><span>Чистая прибыль</span><b>'+money(data.profit ?? data.factTotal)+'</b></div>'+
     '<div class="profit-card"><span>На руках 💵 / 🏦</span><b>'+money(data.cashBalance)+' / '+money(data.transferBalance)+'</b></div>'+
   '</div>';
@@ -2977,7 +2978,7 @@ function renderAdminReport(data, prefix, editable=false){
     renderExpenseTable(data)+
     '<div class="report-section">Таблица прибыли</div>'+
     renderProfitTable(data)+
-    '<div class="report-section">Склад и долг за бутылки</div>'+
+    '<div class="report-section">Склад и долг за бут.</div>'+
     renderWarehouseDebtReport(data);
 }
 async function loadAssets(){
